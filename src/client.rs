@@ -4,7 +4,8 @@ use std::time::Duration;
 use duration_str::parse;
 use log::{info};
 use serde::{Deserialize, Serialize};
-use crate::{RpcMessage, RpcValue};
+use shvproto::RpcValue;
+use crate::{RpcMessage};
 use crate::framerw::{FrameReader, FrameWriter};
 use crate::util::sha1_password_hash;
 
@@ -22,9 +23,9 @@ impl LoginType {
     }
 }
 
-pub enum Scheme {
-    Tcp,
-    LocalSocket,
+ pub enum Scheme {
+     Tcp,
+     LocalSocket,
 }
 
 #[derive(Clone, Debug)]
@@ -54,15 +55,15 @@ impl Default for LoginParams {
 
 impl LoginParams {
     pub fn to_rpcvalue(&self) -> RpcValue {
-        let mut map = crate::Map::new();
-        let mut login = crate::Map::new();
+        let mut map = shvproto::Map::new();
+        let mut login = shvproto::Map::new();
         login.insert("user".into(), RpcValue::from(&self.user));
         login.insert("password".into(), RpcValue::from(&self.password));
         login.insert("type".into(), RpcValue::from(self.login_type.to_str()));
         map.insert("login".into(), RpcValue::from(login));
-        let mut options = crate::Map::new();
+        let mut options = shvproto::Map::new();
         options.insert("idleWatchDogTimeOut".into(), RpcValue::from(self.heartbeat_interval.as_secs() * 3));
-        let mut device = crate::Map::new();
+        let mut device = shvproto::Map::new();
         if !self.device_id.is_empty() {
             device.insert("deviceId".into(), RpcValue::from(&self.device_id));
         } else if !self.mount_point.is_empty() {

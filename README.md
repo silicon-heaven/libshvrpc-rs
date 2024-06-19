@@ -1,2 +1,2 @@
-# shv-rs
-SHV implementation in rust
+# libshvrpc-rs
+SHV RPC rust implementation

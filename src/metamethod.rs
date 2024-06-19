@@ -1,4 +1,4 @@
-use crate::{RpcValue, rpcvalue};
+use shvproto::{RpcValue, rpcvalue};
 
 #[derive(Debug)]
 pub enum Flag {

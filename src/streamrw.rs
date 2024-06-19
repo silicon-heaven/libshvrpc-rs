@@ -3,9 +3,9 @@ use async_trait::async_trait;
 use crate::rpcframe::{Protocol, RpcFrame};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use log::*;
-use crate::{ChainPackReader, ChainPackWriter, Reader, ReadError};
+use shvproto::{ChainPackReader, ChainPackWriter, Reader, ReadError};
 use crate::framerw::{FrameReader, FrameWriter, serialize_meta};
-use crate::reader::ReadErrorReason;
+use shvproto::reader::ReadErrorReason;
 
 pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
     reader: R,

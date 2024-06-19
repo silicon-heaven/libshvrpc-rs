@@ -1,8 +1,9 @@
 use std::fmt;
 use std::io::{BufReader};
-use crate::{ChainPackReader, ChainPackWriter, MetaMap, RpcMessage, RpcMessageMetaTags, rpctype, RpcValue};
-use crate::writer::Writer;
-use crate::reader::Reader;
+use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, RpcValue};
+use shvproto::writer::Writer;
+use shvproto::reader::Reader;
+use crate::{RpcMessage, rpcmessage, RpcMessageMetaTags, rpctype};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RpcFrame {
@@ -86,7 +87,7 @@ impl fmt::Display for RpcFrame {
     }
 }
 
-impl RpcMessageMetaTags for RpcFrame {
+impl rpcmessage::RpcMessageMetaTags for RpcFrame {
     type Target = RpcFrame;
 
     fn tag(&self, id: i32) -> Option<&RpcValue> {

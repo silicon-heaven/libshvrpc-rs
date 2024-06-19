@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use glob::Pattern;
-use crate::RpcValue;
-use crate::Map;
+use shvproto::RpcValue;
+use shvproto::Map;
 
 #[derive(Debug, Clone)]
 pub struct Subscription {

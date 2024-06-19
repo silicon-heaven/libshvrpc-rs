@@ -1,8 +1,8 @@
 use crate::metamethod::AccessLevel;
-use crate::{RpcValue, rpctype, Value};
-use crate::metamap::*;
+use shvproto::{RpcValue, Value};
+use shvproto::metamap::*;
 // use std::collections::BTreeMap;
-use crate::rpcvalue::{IMap, List};
+use shvproto::rpcvalue::{IMap, List};
 // use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::fmt;
@@ -10,6 +10,7 @@ use std::fmt::{Debug, Display, Formatter};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde::de::Visitor;
 use crate::rpcframe::RpcFrame;
+use crate::rpctype;
 
 static G_RPC_REQUEST_COUNT: AtomicI64 = AtomicI64::new(0);
 
@@ -482,7 +483,7 @@ impl<'de> Deserialize<'de> for RpcMessage {
 
 #[cfg(test)]
 mod test {
-    use crate::RpcValue;
+    use shvproto::RpcValue;
     use crate::RpcMessage;
     use crate::metamethod::AccessLevel;
     use crate::rpcmessage::RpcMessageMetaTags;

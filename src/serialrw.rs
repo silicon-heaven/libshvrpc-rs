@@ -4,7 +4,7 @@ use crc::CRC_32_ISO_HDLC;
 use crate::rpcframe::{Protocol, RpcFrame};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use log::*;
-use crate::{ChainPackReader, Reader};
+use shvproto::{ChainPackReader, Reader};
 use crate::framerw::{FrameReader, FrameWriter, serialize_meta};
 
 const STX: u8 = 0xA2;

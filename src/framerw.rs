@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use crate::rpcframe::{Protocol, RpcFrame};
-use crate::{ChainPackWriter, MetaMap, RpcMessage, RpcMessageMetaTags, RpcValue, Writer};
+use shvproto::{ChainPackWriter, MetaMap, RpcValue, Writer};
+use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{RpcError, RpcErrorCode, RqId};
 #[async_trait]
 pub trait FrameReader {
@@ -18,7 +19,7 @@ pub trait FrameWriter {
     async fn send_reset_session(&mut self) -> crate::Result<()> {
         self.send_frame(RpcFrame{
             protocol: Protocol::ResetSession,
-            meta: MetaMap(vec![]),
+            meta: MetaMap::new(),
             data: vec![],
         }).await
     }
