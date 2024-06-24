@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-shvproto = { git = "https://github.com/silicon-heaven/libshvproto-rs.git", branch = "master" }
+shvproto = { git = "https://github.com/silicon-heaven/libshvproto-rs.git", branch = "master", version = "3.0.0" }
 
 futures = "0.3.29"
 log = "0.4.21"
@@ -19,4 +19,8 @@ async-trait = "0.1.77"
 crc = "3.0.1"
 serde = "1.0.193"
 serde_yaml = "0.9.29"
+async-std = { version = "1.12.0", features = ["attributes"], optional = true }
+
+[features]
+async-std = ["dep:async-std"]
 
