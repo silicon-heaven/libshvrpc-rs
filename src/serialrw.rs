@@ -70,18 +70,13 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     #[cfg(all(test, feature = "async-std"))]
     async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
         let mut data: Vec<u8> = Default::default();
-        loop {
-            match self.get_escaped_byte().await {
-                Ok(b) => {
-                    match b {
-                        Byte::Data(b) => { data.push(b) }
-                        Byte::Stx => { data.push( STX) }
-                        Byte::Etx => { data.push( ETX ) }
-                        Byte::Atx => { data.push( ATX ) }
-                        Byte::FramingError(b) => { return Err(format!("Framing error, invalid character {b}").into()) }
-                    }
-                }
-                Err(_) => { break }
+        while let Ok(b) = self.get_escaped_byte().await {
+            match b {
+                Byte::Data(b) => { data.push(b) }
+                Byte::Stx => { data.push( STX) }
+                Byte::Etx => { data.push( ETX ) }
+                Byte::Atx => { data.push( ATX ) }
+                Byte::FramingError(b) => { return Err(format!("Framing error, invalid character {b}").into()) }
             }
         }
         Ok(data)
