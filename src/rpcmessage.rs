@@ -20,14 +20,14 @@ pub type CliId = i32;
 #[allow(dead_code)]
 pub enum Tag {
     RequestId = rpctype::Tag::USER as isize, // 8
-    ShvPath, // 9
-    Method,  // 10
-    CallerIds, // 11
-    ProtocolType, //needed when destination client is using different version than source one to translate raw message data to correct format
-    RevCallerIds,
-    Access,
-    UserId,
-    AccessLevel,
+    ShvPath = 9,
+    Method = 10,
+    CallerIds = 11,
+    ProtocolType = 12, //needed when destination client is using different version than source one to translate raw message data to correct format
+    RevCallerIds = 13,
+    Access = 14,
+    UserId = 16,
+    AccessLevel = 17,
     MAX
 }
 
