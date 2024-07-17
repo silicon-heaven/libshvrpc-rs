@@ -32,7 +32,7 @@ pub fn join_path(p1: &str, p2: &str) -> String {
 pub fn parse_log_verbosity<'a>(verbosity: &'a str, module_path: &'a str) -> Vec<(&'a str, LevelFilter)> {
     let mut ret: Vec<(&str, LevelFilter)> = Vec::new();
     for module_level_str in verbosity.split(',') {
-        let module_level: Vec<_> = module_level_str.split('%').collect();
+        let module_level: Vec<_> = module_level_str.split(':').collect();
         // Using `get(0)` looks more consistent along with the following `get(1)`
         #[allow(clippy::get_first)]
         let name = *module_level.get(0).unwrap_or(&".");
