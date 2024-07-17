@@ -48,14 +48,15 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
                 }
             };
         };
-        let mut data: Vec<u8> = Vec::with_capacity(frame_len);
-        let mut to_read = frame_len;
-        while to_read > 0 {
-            let mut buff = vec![0u8; to_read];
-            let n = self.reader.read(&mut buff[..]).await?;
-            data.append(&mut buff);
-            to_read -= n;
+        // log!(target: "RpcData", Level::Debug, "Frame length {}", frame_len);
+        // log!(target: "RpcData", Level::Debug, "Frame length data\n{}", hex_dump(&lendata));
+        let mut data: Vec<u8> = vec![0u8; frame_len];
+        let mut bytes_read = 0usize;
+        while bytes_read < frame_len {
+            let n = self.reader.read(&mut data[bytes_read ..]).await?;
+            bytes_read += n;
         }
+        // log!(target: "RpcData", Level::Debug, "Data\n{}", hex_dump(&data));
         let protocol = data[0];
         if protocol != Protocol::ChainPack as u8 {
             return Err("Not chainpack message".into());
@@ -74,6 +75,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
 }
 
 pub fn read_frame(buff: &[u8]) -> crate::Result<RpcFrame> {
+    // log!(target: "RpcData", Level::Debug, "\n{}", hex_dump(buff));
     let mut buffrd = BufReader::new(buff);
     let mut rd = ChainPackReader::new(&mut buffrd);
     let frame_len = match rd.read_uint_data() {
