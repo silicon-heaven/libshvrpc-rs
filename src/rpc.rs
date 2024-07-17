@@ -37,11 +37,7 @@ impl Subscription {
 }
 impl Display for Subscription {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut s = format!("{}:{}", self.paths, self.signal);
-        if !(self.source.is_empty() || self.source == "*") {
-            s = format!("{}:{}", &s, self.source);
-        }
-        write!(f, "{}", s)
+        write!(f, "{}:{}:{}", self.paths, self.signal, self.source)
     }
 }
 
@@ -104,10 +100,6 @@ impl SubscriptionPattern {
 }
 impl Display for SubscriptionPattern {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut s = format!("{}:{}", self.paths.as_str(), self.signal.as_str());
-        if !(self.source.as_str().is_empty() || self.source.as_str() == "*") {
-            s = format!("{}:{}", &s, self.source.as_str());
-        }
-        write!(f, "{}", s)
+        write!(f, "{}:{}:{}", self.paths.as_str(), self.signal.as_str(), self.source.as_str())
     }
 }
