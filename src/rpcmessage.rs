@@ -28,6 +28,8 @@ pub enum Tag {
     Access = 14,
     UserId = 16,
     AccessLevel = 17,
+    Source = 19,
+    Repeat = 20,
     MAX
 }
 
@@ -221,6 +223,12 @@ pub trait RpcMessageMetaTags {
     }
     fn set_method(&mut self, method: &str) -> &mut Self::Target {
         self.set_tag(Tag::Method as i32, Some(RpcValue::from(method)))
+    }
+    fn source(&self) -> Option<&str> {
+        self.tag(Tag::Source as i32).map(RpcValue::as_str)
+    }
+    fn set_source(&mut self, source: &str) -> &mut Self::Target {
+        self.set_tag(Tag::Source as i32, Some(RpcValue::from(source)))
     }
     fn access_level(&self) -> Option<i32> {
         self.tag(Tag::AccessLevel as i32)
