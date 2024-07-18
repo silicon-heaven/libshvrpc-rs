@@ -103,3 +103,10 @@ impl Display for SubscriptionPattern {
         write!(f, "{}:{}:{}", self.paths.as_str(), self.signal.as_str(), self.source.as_str())
     }
 }
+impl PartialEq<Subscription> for SubscriptionPattern {
+    fn eq(&self, sub: &Subscription) -> bool {
+        return self.paths.as_str() == sub.source
+        && self.signal.as_str() == sub.signal
+        && self.source.as_str() == sub.source;
+    }
+}
