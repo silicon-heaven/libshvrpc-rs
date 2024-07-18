@@ -80,7 +80,7 @@ impl From<&str> for AccessLevel {
 }
 
 impl TryFrom<i32> for AccessLevel {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
@@ -93,7 +93,18 @@ impl TryFrom<i32> for AccessLevel {
             value if value == AccessLevel::SuperService as i32 => Ok(AccessLevel::SuperService),
             value if value == AccessLevel::Developer as i32 => Ok(AccessLevel::Developer),
             value if value == AccessLevel::Superuser as i32 => Ok(AccessLevel::Superuser),
-            _ => Err(()),
+            _ => Err(format!("Invalid access level: {value}")),
+        }
+    }
+}
+
+impl TryFrom<&RpcValue> for AccessLevel {
+    type Error = String;
+    fn try_from(value: &RpcValue) -> Result<Self, Self::Error> {
+        if let shvproto::rpcvalue::Value::Int(val) = value.value() {
+            (*val as i32).try_into()
+        } else {
+            Err(format!("Wrong RpcValue type for AccessLevel: {}", value.type_name()))
         }
     }
 }
