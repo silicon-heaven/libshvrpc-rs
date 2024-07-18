@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-shvproto = { git = "https://github.com/silicon-heaven/libshvproto-rs.git", branch = "master", version = "3.0.0" }
+shvproto = { git = "https://github.com/silicon-heaven/libshvproto-rs.git", branch = "master", version = "3.0.10" }
 
 futures = "0.3.29"
 log = "0.4.21"
