@@ -51,11 +51,8 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
         // log!(target: "RpcData", Level::Debug, "Frame length {}", frame_len);
         // log!(target: "RpcData", Level::Debug, "Frame length data\n{}", hex_dump(&lendata));
         let mut data: Vec<u8> = vec![0u8; frame_len];
-        let mut bytes_read = 0usize;
-        while bytes_read < frame_len {
-            let n = self.reader.read(&mut data[bytes_read ..]).await?;
-            bytes_read += n;
-        }
+        self.reader.read_exact(&mut data).await?;
+
         // log!(target: "RpcData", Level::Debug, "Data\n{}", hex_dump(&data));
         let protocol = data[0];
         if protocol != Protocol::ChainPack as u8 {
