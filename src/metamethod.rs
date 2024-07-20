@@ -147,7 +147,7 @@ impl MetaMethod {
                 m.insert(DirAttribute::Flags.into(), self.flags.into());
                 m.insert(DirAttribute::Param.into(), (self.param).into());
                 m.insert(DirAttribute::Result.into(), (self.result).into());
-                m.insert(DirAttribute::Access.into(), (self.access as i32).into());
+                m.insert(DirAttribute::AccessLevel.into(), (self.access as i32).into());
                 m.into()
             }
             DirFormat::Map => {
@@ -156,7 +156,7 @@ impl MetaMethod {
                 m.insert(DirAttribute::Flags.into(), self.flags.into());
                 m.insert(DirAttribute::Param.into(), (self.param).into());
                 m.insert(DirAttribute::Result.into(), (self.result).into());
-                m.insert(DirAttribute::Access.into(), (self.access as i32).into());
+                m.insert(DirAttribute::AccessLevel.into(), (self.access as i32).into());
                 m.insert("description".into(), (self.description).into());
                 m.into()
             }
@@ -171,7 +171,7 @@ pub enum DirAttribute {
     Flags,
     Param,
     Result,
-    Access,
+    AccessLevel,
 }
 impl From<DirAttribute> for i32 {
     fn from(val: DirAttribute) -> Self {
@@ -181,11 +181,11 @@ impl From<DirAttribute> for i32 {
 impl From<DirAttribute> for &str {
     fn from(val: DirAttribute) -> Self {
         match val {
-            DirAttribute::Name => {"name"}
-            DirAttribute::Flags => {"flags"}
-            DirAttribute::Param => {"param"}
-            DirAttribute::Result => {"result"}
-            DirAttribute::Access => {"access"}
+            DirAttribute::Name => "name",
+            DirAttribute::Flags => "flags",
+            DirAttribute::Param => "param",
+            DirAttribute::Result => "result",
+            DirAttribute::AccessLevel => "access",
         }
     }
 }

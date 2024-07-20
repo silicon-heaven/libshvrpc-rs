@@ -68,9 +68,9 @@ impl TryFrom<&RpcValue> for MethodInfo {
                     flags: get_key(DirAttribute::Flags)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Flags, &e))?,
-                    access_level: get_key(DirAttribute::Access)?
+                    access_level: get_key(DirAttribute::AccessLevel)?
                         .try_into()
-                        .map_err(|e| format_err(DirAttribute::Access, &e))?,
+                        .map_err(|e| format_err(DirAttribute::AccessLevel, &e))?,
                     param: get_key(DirAttribute::Param)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Param, &e))?,
@@ -97,9 +97,9 @@ impl TryFrom<&RpcValue> for MethodInfo {
                     flags: get_key(DirAttribute::Flags)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Flags, &e))?,
-                    access_level: get_key(DirAttribute::Access)?
+                    access_level: get_key(DirAttribute::AccessLevel)?
                         .try_into()
-                        .map_err(|e| format_err(DirAttribute::Access, &e))?,
+                        .map_err(|e| format_err(DirAttribute::AccessLevel, &e))?,
                     param: get_key(DirAttribute::Param)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Param, &e))?,
@@ -180,7 +180,7 @@ mod test {
         let rv_imap: RpcValue = [
             (i32::from(DirAttribute::Name), RpcValue::from("method")),
             (i32::from(DirAttribute::Flags), RpcValue::from(Flag::IsGetter as u32)),
-            (i32::from(DirAttribute::Access), RpcValue::from(AccessLevel::Read as i32)),
+            (i32::from(DirAttribute::AccessLevel), RpcValue::from(AccessLevel::Read as i32)),
             (i32::from(DirAttribute::Param), RpcValue::from("param")),
             (i32::from(DirAttribute::Result), RpcValue::from("result")),
         ].into_iter().collect::<BTreeMap::<_,_>>().into();
