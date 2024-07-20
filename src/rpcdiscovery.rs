@@ -44,7 +44,7 @@ impl From<DirParam> for RpcValue {
 pub struct MethodInfo {
     pub name: String,
     pub flags: u32,
-    pub access: AccessLevel,
+    pub access_level: AccessLevel,
     pub param: String,
     pub result: String,
 }
@@ -68,7 +68,7 @@ impl TryFrom<&RpcValue> for MethodInfo {
                     flags: get_key(DirAttribute::Flags)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Flags, &e))?,
-                    access: get_key(DirAttribute::Access)?
+                    access_level: get_key(DirAttribute::Access)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Access, &e))?,
                     param: get_key(DirAttribute::Param)?
@@ -97,7 +97,7 @@ impl TryFrom<&RpcValue> for MethodInfo {
                     flags: get_key(DirAttribute::Flags)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Flags, &e))?,
-                    access: get_key(DirAttribute::Access)?
+                    access_level: get_key(DirAttribute::Access)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Access, &e))?,
                     param: get_key(DirAttribute::Param)?
@@ -160,7 +160,7 @@ mod test {
         MethodInfo {
             name: "method".to_string(),
             flags: Flag::IsGetter.into(),
-            access: AccessLevel::Read,
+            access_level: AccessLevel::Read,
             param: "param".to_string(),
             result: "result".to_string(),
         }
