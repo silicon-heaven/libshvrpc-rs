@@ -101,10 +101,13 @@ impl TryFrom<i32> for AccessLevel {
 impl TryFrom<&RpcValue> for AccessLevel {
     type Error = String;
     fn try_from(value: &RpcValue) -> Result<Self, Self::Error> {
-        if let shvproto::rpcvalue::Value::Int(val) = value.value() {
-            (*val as i32).try_into()
-        } else {
-            Err(format!("Wrong RpcValue type for AccessLevel: {}", value.type_name()))
+        use shvproto::rpcvalue::Value;
+        match value.value() {
+            Value::Int(val) => (*val as i32).try_into(),
+            Value::String(val) =>
+                AccessLevel::from_str(val.as_str())
+                .ok_or_else(|| format!("Wrong value of AccessLevel: {}", val)),
+            _ => Err(format!("Wrong RpcValue type for AccessLevel: {}", value.type_name())),
         }
     }
 }
