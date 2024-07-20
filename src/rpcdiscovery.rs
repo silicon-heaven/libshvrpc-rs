@@ -68,9 +68,10 @@ impl TryFrom<&RpcValue> for MethodInfo {
                     flags: get_key(DirAttribute::Flags)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Flags, &e))?,
-                    access_level: get_key(DirAttribute::AccessLevel)?
+                    access_level: map.get("access").or_else(|| map.get("accessGrant"))
+                        .ok_or("Missing MethodInfo key `access` or `accessGrant` in Map")?
                         .try_into()
-                        .map_err(|e| format_err(DirAttribute::AccessLevel, &e))?,
+                        .map_err(|err| format!("Invalid MethodInfo field `access` or `accessGrant` in Map: {err}"))?,
                     param: get_key(DirAttribute::Param)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Param, &e))?,
@@ -171,7 +172,16 @@ mod test {
         let rv_map: RpcValue = shvproto::make_map!(
             "name" => "method",
             "flags" => Flag::IsGetter as u32,
-            "access" => AccessLevel::Read as i32,
+            "access" => "rd",
+            "param" => "param",
+            "result" => "result",
+        ).into();
+        assert_eq!(method_info(), (&rv_map).try_into().unwrap());
+
+        let rv_map: RpcValue = shvproto::make_map!(
+            "name" => "method",
+            "flags" => Flag::IsGetter as u32,
+            "accessGrant" => "rd",
             "param" => "param",
             "result" => "result",
         ).into();
@@ -193,8 +203,8 @@ mod test {
         let rv_map: RpcValue = shvproto::make_map!(
             "name" => "method",
             "flags" => Flag::IsGetter as u32,
-            "access" => AccessLevel::Read as i32,
-            // "param" => "param",
+            // "access" => AccessLevel::Read as i32,
+            "param" => "param",
             "result" => "result",
         ).into();
         let _:MethodInfo = (&rv_map).try_into().unwrap();
