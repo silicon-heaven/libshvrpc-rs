@@ -2,6 +2,54 @@ use shvproto::RpcValue;
 
 use crate::metamethod::{AccessLevel, DirAttribute};
 
+#[derive(Debug,PartialEq)]
+pub enum LsParam {
+    List,
+    Exists(String),
+}
+
+impl From<&RpcValue> for LsParam {
+    fn from(value: &RpcValue) -> Self {
+        match value.value() {
+            shvproto::Value::String(dirname) => LsParam::Exists(String::clone(dirname)),
+            _ => LsParam::List,
+        }
+    }
+}
+
+impl From<Option<&RpcValue>> for LsParam {
+    fn from(value: Option<&RpcValue>) -> Self {
+        value.map_or(LsParam::List, |rpcval| rpcval.into())
+    }
+}
+
+impl From<LsParam> for RpcValue {
+    fn from(value: LsParam) -> Self {
+        match value {
+            LsParam::List => ().into(),
+            LsParam::Exists(dirname) => dirname.into(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum LsResult {
+    Exists(bool),
+    List(Vec<String>),
+}
+
+impl TryFrom<&RpcValue> for LsResult {
+    type Error = String;
+    fn try_from(rpcvalue: &RpcValue) -> Result<Self, Self::Error> {
+        match rpcvalue.value() {
+            shvproto::Value::Bool(false) | shvproto::Value::Null => Ok(LsResult::Exists(false)),
+            shvproto::Value::Bool(true) => Ok(LsResult::Exists(true)),
+            shvproto::Value::List(_) => Ok(LsResult::List(rpcvalue.try_into()?)),
+            _ => Err(format!("Wrong RpcValue type for a result of `ls`: {}", rpcvalue.type_name()))
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum DirParam {
     Brief,
@@ -22,10 +70,7 @@ impl From<&RpcValue> for DirParam {
 
 impl From<Option<&RpcValue>> for DirParam {
     fn from(value: Option<&RpcValue>) -> Self {
-        match value {
-            Some(rpcval) => rpcval.into(),
-            None => DirParam::Brief,
-        }
+        value.map_or(DirParam::Brief, |rpcval| rpcval.into())
     }
 }
 
@@ -221,5 +266,19 @@ mod test {
             "result" => "result",
         ).into();
         let _:MethodInfo = (&rv_map).try_into().unwrap();
+    }
+
+    #[test]
+    fn ls_param_from_rpcvalue() {
+        assert_eq!(LsParam::List, (&RpcValue::from(())).into());
+        assert_eq!(LsParam::List, (&RpcValue::from(false)).into());
+        assert_eq!(LsParam::List, None.into());
+        assert_eq!(LsParam::Exists("foo".into()), (&RpcValue::from("foo")).into());
+    }
+
+    #[test]
+    fn ls_param_into_rpcvalue() {
+        assert_eq!(RpcValue::from(LsParam::List), ().into());
+        assert_eq!(RpcValue::from(LsParam::Exists("foo".into())), "foo".into());
     }
 }
