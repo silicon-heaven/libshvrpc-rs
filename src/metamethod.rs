@@ -80,7 +80,7 @@ impl From<&str> for AccessLevel {
 }
 
 impl TryFrom<i32> for AccessLevel {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
@@ -93,7 +93,21 @@ impl TryFrom<i32> for AccessLevel {
             value if value == AccessLevel::SuperService as i32 => Ok(AccessLevel::SuperService),
             value if value == AccessLevel::Developer as i32 => Ok(AccessLevel::Developer),
             value if value == AccessLevel::Superuser as i32 => Ok(AccessLevel::Superuser),
-            _ => Err(()),
+            _ => Err(format!("Invalid access level: {value}")),
+        }
+    }
+}
+
+impl TryFrom<&RpcValue> for AccessLevel {
+    type Error = String;
+    fn try_from(value: &RpcValue) -> Result<Self, Self::Error> {
+        use shvproto::rpcvalue::Value;
+        match value.value() {
+            Value::Int(val) => (*val as i32).try_into(),
+            Value::String(val) =>
+                AccessLevel::from_str(val.as_str())
+                .ok_or_else(|| format!("Wrong value of AccessLevel: {}", val)),
+            _ => Err(format!("Wrong RpcValue type for AccessLevel: {}", value.type_name())),
         }
     }
 }
@@ -133,7 +147,7 @@ impl MetaMethod {
                 m.insert(DirAttribute::Flags.into(), self.flags.into());
                 m.insert(DirAttribute::Param.into(), (self.param).into());
                 m.insert(DirAttribute::Result.into(), (self.result).into());
-                m.insert(DirAttribute::Access.into(), (self.access as i32).into());
+                m.insert(DirAttribute::AccessLevel.into(), (self.access as i32).into());
                 m.into()
             }
             DirFormat::Map => {
@@ -142,7 +156,7 @@ impl MetaMethod {
                 m.insert(DirAttribute::Flags.into(), self.flags.into());
                 m.insert(DirAttribute::Param.into(), (self.param).into());
                 m.insert(DirAttribute::Result.into(), (self.result).into());
-                m.insert(DirAttribute::Access.into(), (self.access as i32).into());
+                m.insert(DirAttribute::AccessLevel.into(), (self.access as i32).into());
                 m.insert("description".into(), (self.description).into());
                 m.into()
             }
@@ -157,7 +171,7 @@ pub enum DirAttribute {
     Flags,
     Param,
     Result,
-    Access,
+    AccessLevel,
 }
 impl From<DirAttribute> for i32 {
     fn from(val: DirAttribute) -> Self {
@@ -167,11 +181,12 @@ impl From<DirAttribute> for i32 {
 impl From<DirAttribute> for &str {
     fn from(val: DirAttribute) -> Self {
         match val {
-            DirAttribute::Name => {"name"}
-            DirAttribute::Flags => {"flags"}
-            DirAttribute::Param => {"param"}
-            DirAttribute::Result => {"result"}
-            DirAttribute::Access => {"access"}
+            DirAttribute::Name => "name",
+            DirAttribute::Flags => "flags",
+            DirAttribute::Param => "param",
+            DirAttribute::Result => "result",
+            // TODO: some implementations return "accessGrant" key in the result of dir
+            DirAttribute::AccessLevel => "access",
         }
     }
 }
