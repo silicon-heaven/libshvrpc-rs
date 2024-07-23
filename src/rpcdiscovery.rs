@@ -76,13 +76,13 @@ impl TryFrom<&RpcValue> for LsResult {
 pub enum DirParam {
     Brief,
     Full,
-    BriefMethod(String),
+    Exists(String),
 }
 
 impl From<&RpcValue> for DirParam {
     fn from(rpcvalue: &RpcValue) -> Self {
         match rpcvalue.value() {
-            shvproto::Value::String(param) => DirParam::BriefMethod(param.to_string()),
+            shvproto::Value::String(param) => DirParam::Exists(param.to_string()),
             shvproto::Value::Bool(true) => DirParam::Full,
             _ => DirParam::Brief,
         }
@@ -101,7 +101,7 @@ impl From<DirParam> for RpcValue {
         match value {
             DirParam::Brief => false.into(),
             DirParam::Full => true.into(),
-            DirParam::BriefMethod(method) => method.into(),
+            DirParam::Exists(method) => method.into(),
         }
     }
 }
@@ -213,14 +213,14 @@ mod test {
     fn dir_param_from_rpcvalue() {
         assert_eq!(DirParam::Brief, (&RpcValue::from(())).into());
         assert_eq!(DirParam::Brief, (&RpcValue::from(false)).into());
-        assert_eq!(DirParam::BriefMethod("foo".into()), (&RpcValue::from("foo")).into());
+        assert_eq!(DirParam::Exists("foo".into()), (&RpcValue::from("foo")).into());
         assert_eq!(DirParam::Full, (&RpcValue::from(true)).into());
     }
 
     #[test]
     fn dir_param_into_rpcvalue() {
         assert_eq!(RpcValue::from(DirParam::Brief), false.into());
-        assert_eq!(RpcValue::from(DirParam::BriefMethod("foo".into())), "foo".into());
+        assert_eq!(RpcValue::from(DirParam::Exists("foo".into())), "foo".into());
         assert_eq!(RpcValue::from(DirParam::Full), true.into());
     }
 
