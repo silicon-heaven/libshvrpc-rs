@@ -38,6 +38,28 @@ pub enum LsResult {
     List(Vec<String>),
 }
 
+impl TryFrom<LsResult> for bool {
+    type Error = String;
+    fn try_from(value: LsResult) -> Result<Self, Self::Error> {
+        if let LsResult::Exists(val) = value {
+            Ok(val)
+        } else {
+            Err(format!("Cannot convert `ls` result to bool. Actual result: {:?}", value))
+        }
+    }
+}
+
+impl TryFrom<LsResult> for Vec<String> {
+    type Error = String;
+    fn try_from(value: LsResult) -> Result<Self, Self::Error> {
+        if let LsResult::List(val) = value {
+            Ok(val)
+        } else {
+            Err(format!("Cannot convert `ls` result to Vec<String>. Actual result: {:?}", value))
+        }
+    }
+}
+
 impl TryFrom<&RpcValue> for LsResult {
     type Error = String;
     fn try_from(rpcvalue: &RpcValue) -> Result<Self, Self::Error> {
