@@ -161,19 +161,19 @@ impl TryFrom<&RpcValue> for MethodInfo {
 
 #[derive(Debug)]
 pub enum DirResult {
-    MethodExists(bool),
-    Methods(Vec<MethodInfo>),
+    Exists(bool),
+    List(Vec<MethodInfo>),
 }
 
 impl TryFrom<&RpcValue> for DirResult {
     type Error = String;
     fn try_from(rpcvalue: &RpcValue) -> Result<Self, Self::Error> {
         match rpcvalue.value() {
-            shvproto::Value::Bool(false) | shvproto::Value::Null => Ok(DirResult::MethodExists(false)),
-            shvproto::Value::Bool(true) => Ok(DirResult::MethodExists(true)),
+            shvproto::Value::Bool(false) | shvproto::Value::Null => Ok(DirResult::Exists(false)),
+            shvproto::Value::Bool(true) => Ok(DirResult::Exists(true)),
             shvproto::Value::Map(_) | shvproto::Value::IMap(_) =>
-                MethodInfo::try_from(rpcvalue).map(|_| DirResult::MethodExists(true)),
-            shvproto::Value::List(_) => Ok(DirResult::Methods(rpcvalue.try_into()?)),
+                MethodInfo::try_from(rpcvalue).map(|_| DirResult::Exists(true)),
+            shvproto::Value::List(_) => Ok(DirResult::List(rpcvalue.try_into()?)),
             _ => Err(format!("Wrong RpcValue type: {}", rpcvalue.type_name()))
         }
     }
