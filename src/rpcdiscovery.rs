@@ -187,6 +187,28 @@ pub enum DirResult {
     List(Vec<MethodInfo>),
 }
 
+impl TryFrom<DirResult> for bool {
+    type Error = String;
+    fn try_from(value: DirResult) -> Result<Self, Self::Error> {
+        if let DirResult::Exists(val) = value {
+            Ok(val)
+        } else {
+            Err(format!("Cannot convert `dir` result to bool. Actual result: {:?}", value))
+        }
+    }
+}
+
+impl TryFrom<DirResult> for Vec<MethodInfo> {
+    type Error = String;
+    fn try_from(value: DirResult) -> Result<Self, Self::Error> {
+        if let DirResult::List(val) = value {
+            Ok(val)
+        } else {
+            Err(format!("Cannot convert `dir` result to Vec<MethodInfo>. Actual result: {:?}", value))
+        }
+    }
+}
+
 impl TryFrom<&RpcValue> for DirResult {
     type Error = String;
     fn try_from(rpcvalue: &RpcValue) -> Result<Self, Self::Error> {
