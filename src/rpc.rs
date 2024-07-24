@@ -4,109 +4,154 @@ use shvproto::RpcValue;
 use shvproto::Map;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct Subscription {
-    pub paths: String,
-    pub signal: String,
-    pub source: String,
+pub struct ShvRI {
+    ri: String,
+    method_sep_ix: usize,
+    signal_sep_ix: Option<usize>,
 }
-impl Subscription {
-    pub fn new(paths: &str, signal: &str, source: &str) -> Self {
-        let paths = if paths.is_empty() { "**" } else { paths };
-        let signal = if signal.is_empty() { "*" } else { signal };
-        let source = if source.is_empty() { "*" } else { source };
-        Self {
-            paths: paths.to_string(),
-            signal: signal.to_string(),
-            source: source.to_string(),
+
+impl ShvRI {
+    pub fn path(&self) -> &str {
+        &self.ri[0 .. self.method_sep_ix]
+    }
+    pub fn method(&self) -> &str {
+        if let Some(ix) = self.signal_sep_ix {
+            &self.ri[self.method_sep_ix + 1 .. ix]
+        } else {
+            &self.ri[self.method_sep_ix + 1 ..]
         }
     }
-    pub fn from_rpcvalue(value: &RpcValue) -> Self {
-        let m = value.as_map();
-        let paths = m.get("paths").unwrap_or(m.get("path").unwrap_or_default()).as_str();
-        let signal = m.get("signal").unwrap_or(m.get("methods").unwrap_or(m.get("method").unwrap_or_default())).as_str();
-        let source = m.get("source").unwrap_or_default().as_str();
-        Self::new(paths, signal, source)
+    pub fn signal(&self) -> Option<&str> {
+        if let Some(ix) = self.signal_sep_ix {
+            Some(&self.ri[ix + 1 ..])
+        } else {
+            None
+        }
     }
-    pub fn to_rpcvalue(self) -> RpcValue {
+    pub fn has_signal(&self) -> bool {
+        self.signal_sep_ix.is_some()
+    }
+    pub fn to_glob(&self) -> String {
+        let path = self.path();
+        let method = self.method();
+        if let Some(signal) = self.signal() {
+            format!("{}:{}:{}",
+                    if path.is_empty() {"**"} else {path},
+                    if method.is_empty() {"*"} else {method},
+                    if signal.is_empty() {"*"} else {signal}
+            )
+        } else {
+            format!("{}:{}",
+                    if path.is_empty() {"**"} else {path},
+                    if method.is_empty() {"*"} else {method},
+            )
+        }
+    }
+    pub fn as_str(&self) -> &str {
+        &self.ri
+    }
+    pub fn from_path_method_signal(path: &str, method: &str, signal: Option<&str>) -> Self {
+        let ri = if let Some(signal) = signal {
+            format!("{path}:{method}:{signal}")
+        } else {
+            format!("{path}:{method}")
+        };
+        Self::try_from(ri).expect("Valid RI string")
+    }
+}
+impl TryFrom<&str> for ShvRI {
+    type Error = &'static str;
+    fn try_from(s: &str) -> std::result::Result<Self, <Self as TryFrom<&str>>::Error> {
+        let ri = s.to_owned();
+        Self::try_from(ri)
+    }
+}
+impl TryFrom<String> for ShvRI {
+    type Error = &'static str;
+    fn try_from(s: String) -> std::result::Result<Self, <Self as TryFrom<String>>::Error> {
+        let Some(method_sep_ix) = s[..].find(':') else {
+            return Err("Method separtor ':' is missing.")
+        };
+        let signal_sep_ix = s[method_sep_ix + 1 ..].find(':');
+        Ok(ShvRI {
+            ri: s,
+            method_sep_ix,
+            signal_sep_ix,
+        })
+    }
+}
+#[derive(Debug, Clone)]
+pub struct Subscription {
+    pub ri: ShvRI,
+    pub ttl: u32,
+}
+impl Subscription {
+    pub fn from_rpcvalue(value: &RpcValue) -> Result<Self, String> {
+        if value.is_map() {
+            let m = value.as_map();
+            let paths = m.get("paths").unwrap_or(m.get("path").unwrap_or_default()).as_str();
+            let source = m.get("source").unwrap_or_default().as_str();
+            let signal = m.get("signal").or(m.get("methods")).or(m.get("method"))
+                                                .map(|v| v.as_str());
+            if paths.is_empty() && source.is_empty() && signal.is_none() {
+                Err("Empty map".into())
+            } else {
+                Ok(Subscription {
+                    ri: ShvRI::from_path_method_signal(paths, source, signal),
+                    ttl: 0,
+                })
+            }
+        }
+        else if value.is_list() {
+            let lst = value.as_list();
+            let ri = lst.get(0).map(|v| v.as_str()).unwrap_or_default();
+            if ri.is_empty() {
+                Err("Empty SHV RI".into())
+            } else {
+                let ttl = lst.get(1).map(|v| v.as_u32()).unwrap_or(0);
+                Ok(Subscription {
+                    ri: ri.try_into()?,
+                    ttl,
+                })
+            }
+        } else {
+            Err("Unsupported RPC value type.".into())
+        }
+    }
+    pub fn to_rpcvalue(&self) -> RpcValue {
         let mut m = Map::new();
-        m.insert("paths".into(), self.paths.into());
-        m.insert("signal".into(), self.signal.into());
-        m.insert("source".into(), self.source.into());
+        m.insert("signalRI".into(), self.ri.as_str().into());
+        if self.ttl > 0 {
+            m.insert("ttl".into(), self.ttl.into());
+        }
         RpcValue::from(m)
     }
 }
-impl Display for Subscription {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}:{}", self.paths, self.signal, self.source)
-    }
-}
 
-impl From<&SubscriptionPattern> for Subscription {
-    fn from(p: &SubscriptionPattern) -> Self {
-        Subscription {
-            paths: p.paths.as_str().to_string(),
-            signal: p.signal.as_str().to_string(),
-            source: p.source.as_str().to_string(),
-        }
-    }
-}
-#[derive(Debug, PartialEq)]
-pub struct SubscriptionPattern {
-    pub paths: Pattern,
-    pub signal: Pattern,
-    pub source: Pattern,
-}
+#[derive(Debug)]
+pub struct SubscriptionPattern(Pattern);
+
 impl SubscriptionPattern {
-    pub fn new(paths: &str, signal: &str, source: &str) -> crate::Result<Self> {
-        let paths = if paths.is_empty() { "**" } else { paths };
-        let signal = if signal.is_empty() { "*" } else { signal };
-        let source = if source.is_empty() { "*" } else { source };
-        match Pattern::new(paths) {
-            Ok(paths) => {
-                match Pattern::new(signal) {
-                    Ok(signal) => {
-                        match Pattern::new(source) {
-                            Ok(source) => {
-                                Ok(Self {
-                                    paths,
-                                    signal,
-                                    source,
-                                })
-                            }
-                            Err(err) => { Err(format!("Source pattern error: {}", &err).into()) }
-                        }
-                    }
-                    Err(err) => { Err(format!("Signal pattern error: {}", &err).into()) }
-                }
+    pub fn new(shv_ri: &ShvRI) -> crate::Result<Self> {
+        match Pattern::new(&shv_ri.to_glob()) {
+            Ok(patt) => {
+                Ok(Self(patt))
             }
-            Err(err) => { Err(format!("Paths pattern error: {}", &err).into()) }
+            Err(err) => { Err(format!("Signal RI pattern error: {}", &err).into()) }
         }
     }
-    pub fn match_shv_method(&self, paths: &str, signal: &str, source: &str) -> bool {
-        self.paths.matches(paths) && self.signal.matches(signal) && self.source.matches(source)
-    }
-    pub fn from_rpcvalue(value: &RpcValue) -> crate::Result<Self> {
-        Self::from_subscription(&Subscription::from_rpcvalue(value))
+    pub fn match_shv_ri(&self, shv_ri: &ShvRI) -> bool {
+        self.0.matches(shv_ri.as_str())
     }
     pub fn from_subscription(subscription: &Subscription) -> crate::Result<Self> {
-        Self::new(&subscription.paths, &subscription.signal, &subscription.source)
+        Self::new(&subscription.ri)
     }
-    pub fn to_rpcvalue(&self) -> RpcValue {
-        self.to_subscription().to_rpcvalue()
-    }
-    pub fn to_subscription(&self) -> Subscription {
-        Subscription::new(self.paths.as_str(), self.signal.as_str(), self.source.as_str())
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
     }
 }
 impl Display for SubscriptionPattern {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}:{}", self.paths.as_str(), self.signal.as_str(), self.source.as_str())
-    }
-}
-impl PartialEq<Subscription> for SubscriptionPattern {
-    fn eq(&self, sub: &Subscription) -> bool {
-        return self.paths.as_str() == sub.source
-        && self.signal.as_str() == sub.signal
-        && self.source.as_str() == sub.source;
+        write!(f, "{}", self.0.as_str())
     }
 }
