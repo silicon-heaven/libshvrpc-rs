@@ -32,7 +32,7 @@ impl From<LsParam> for RpcValue {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub enum LsResult {
     Exists(bool),
     List(Vec<String>),
@@ -69,6 +69,13 @@ impl TryFrom<&RpcValue> for LsResult {
             shvproto::Value::List(_) => Ok(LsResult::List(rpcvalue.try_into()?)),
             _ => Err(format!("Wrong RpcValue type for a result of `ls`: {}", rpcvalue.type_name()))
         }
+    }
+}
+
+impl TryFrom<RpcValue> for LsResult {
+    type Error = String;
+    fn try_from(rpcvalue: RpcValue) -> Result<Self, Self::Error> {
+        LsResult::try_from(&rpcvalue)
     }
 }
 
@@ -181,7 +188,7 @@ impl TryFrom<&RpcValue> for MethodInfo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub enum DirResult {
     Exists(bool),
     List(Vec<MethodInfo>),
@@ -220,6 +227,13 @@ impl TryFrom<&RpcValue> for DirResult {
             shvproto::Value::List(_) => Ok(DirResult::List(rpcvalue.try_into()?)),
             _ => Err(format!("Wrong RpcValue type: {}", rpcvalue.type_name()))
         }
+    }
+}
+
+impl TryFrom<RpcValue> for DirResult {
+    type Error = String;
+    fn try_from(rpcvalue: RpcValue) -> Result<Self, Self::Error> {
+        DirResult::try_from(&rpcvalue)
     }
 }
 
@@ -324,5 +338,33 @@ mod test {
     fn ls_param_into_rpcvalue() {
         assert_eq!(RpcValue::from(LsParam::List), ().into());
         assert_eq!(RpcValue::from(LsParam::Exists("foo".into())), "foo".into());
+    }
+
+    #[test]
+    fn ls_result_try_from_rpcvalue() {
+        assert_eq!(RpcValue::from(true).try_into(), Ok(LsResult::Exists(true)));
+        assert_eq!(RpcValue::from(false).try_into(), Ok(LsResult::Exists(false)));
+        let list = ["foo".to_owned(), "bar".to_owned()].into_iter().collect::<Vec<_>>();
+        assert_eq!(RpcValue::from(list.clone()).try_into(), Ok(LsResult::List(list)));
+    }
+
+    #[test]
+    fn dir_result_try_from_rpcvalue() {
+        assert_eq!(RpcValue::from(true).try_into(), Ok(DirResult::Exists(true)));
+        assert_eq!(RpcValue::from(false).try_into(), Ok(DirResult::Exists(false)));
+
+        let rv: RpcValue = [
+            shvproto::make_map!(
+                "name" => "method",
+                "flags" => Flag::IsGetter as u32,
+                "access" => "rd",
+                "param" => "param",
+                "result" => "result",
+            )
+        ]
+        .into_iter()
+        .collect::<Vec<_>>()
+        .into();
+        assert_eq!(rv.try_into(), Ok(DirResult::List([method_info()].into_iter().collect())));
     }
 }
