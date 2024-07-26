@@ -1,7 +1,7 @@
 use glob::Pattern;
+use serde::{Deserialize, Serialize};
 use shvproto::RpcValue;
 use std::fmt::{Display, Formatter};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub struct Glob {
@@ -20,13 +20,13 @@ impl Glob {
         if self.path.matches(shv_ri.path()) && self.method.matches(shv_ri.path()) {
             if let Some(signal_pattern) = &self.signal {
                 if let Some(signal) = shv_ri.signal() {
-                    return signal_pattern.matches(signal)
+                    return signal_pattern.matches(signal);
                 } else {
                     let any_signal = signal_pattern.as_str() == "*";
-                    return any_signal
+                    return any_signal;
                 }
-            } else if shv_ri.signal().is_none()  {
-                return true
+            } else if shv_ri.signal().is_none() {
+                return true;
             }
         }
         false
@@ -48,7 +48,7 @@ impl TryFrom<&str> for Glob {
     type Error = String;
     fn try_from(s: &str) -> std::result::Result<Self, <Self as TryFrom<&str>>::Error> {
         let ri = ShvRI::try_from(s)?;
-        Ok(ri.to_glob()?)
+        ri.to_glob()
     }
 }
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -86,13 +86,18 @@ impl ShvRI {
         let method = if method.is_empty() { "*" } else { method };
         let signal = self.signal().map(|s| if s.is_empty() { "*" } else { s });
         let signal = if let Some(signal) = signal {
-            Some(Pattern::new(signal).map_err(|e| format!("Parse signal glob: '{}' error: {}", self, e))?)
+            Some(
+                Pattern::new(signal)
+                    .map_err(|e| format!("Parse signal glob: '{}' error: {}", self, e))?,
+            )
         } else {
             None
         };
         Ok(Glob {
-            path: Pattern::new(path).map_err(|e| format!("Parse path glob: '{}' error: {}", self, e))?,
-            method: Pattern::new(method).map_err(|e| format!("Parse method glob: '{}' error: {}", self, e))?,
+            path: Pattern::new(path)
+                .map_err(|e| format!("Parse path glob: '{}' error: {}", self, e))?,
+            method: Pattern::new(method)
+                .map_err(|e| format!("Parse method glob: '{}' error: {}", self, e))?,
             signal,
             ri: self.clone(),
         })
@@ -109,9 +114,17 @@ impl ShvRI {
         Self::try_from(ri).expect("Valid RI string")
     }
     pub fn normalized(&self) -> Self {
-        let path = if self.path().is_empty() { "**" } else { self.path() };
-        let method = if self.method().is_empty() { "**" } else { self.method() };
-        let signal = self.signal().map(|s| if s.is_empty() { "* "} else { s });
+        let path = if self.path().is_empty() {
+            "**"
+        } else {
+            self.path()
+        };
+        let method = if self.method().is_empty() {
+            "**"
+        } else {
+            self.method()
+        };
+        let signal = self.signal().map(|s| if s.is_empty() { "* " } else { s });
         Self::from_path_method_signal(path, method, signal)
     }
 }
@@ -128,7 +141,9 @@ impl TryFrom<String> for ShvRI {
         let Some(method_sep_ix) = s[..].find(':') else {
             return Err("Method separtor ':' is missing.");
         };
-        let signal_sep_ix = s[method_sep_ix + 1..].find(':').map(|ix| ix + method_sep_ix + 1);
+        let signal_sep_ix = s[method_sep_ix + 1..]
+            .find(':')
+            .map(|ix| ix + method_sep_ix + 1);
         Ok(ShvRI {
             ri: s,
             method_sep_ix,
@@ -170,7 +185,7 @@ impl SubscriptionParam {
             }
         } else if value.is_list() {
             let lst = value.as_list();
-            let ri = lst.get(0).map(|v| v.as_str()).unwrap_or_default();
+            let ri = lst.first().map(|v| v.as_str()).unwrap_or_default();
             if ri.is_empty() {
                 Err("Empty SHV RI".into())
             } else {
@@ -185,7 +200,10 @@ impl SubscriptionParam {
         }
     }
     pub fn to_rpcvalue(&self) -> RpcValue {
-        let lst = vec![RpcValue::from(self.ri.to_string()), RpcValue::from(self.ttl)];
+        let lst = vec![
+            RpcValue::from(self.ri.to_string()),
+            RpcValue::from(self.ttl),
+        ];
         RpcValue::from(lst)
     }
 }
@@ -199,10 +217,13 @@ pub struct Subscription {
 impl Subscription {
     pub fn new(subpar: &SubscriptionParam) -> crate::Result<Self> {
         let glob = subpar.ri.to_glob()?;
-        Ok(Self {param: subpar.clone(), glob})
+        Ok(Self {
+            param: subpar.clone(),
+            glob,
+        })
     }
     pub fn match_shv_ri(&self, shv_ri: &ShvRI) -> bool {
-        self.glob.match_shv_ri(&shv_ri)
+        self.glob.match_shv_ri(shv_ri)
     }
 }
 //impl Display for Subscription {
@@ -219,12 +240,26 @@ mod tests {
     fn test_shvri() -> Result<(), String> {
         for (ri, path, method, signal, glob) in vec![
             ("::", "", "", Some(""), "**:*:*"),
-            ("some/path:method:signal", "some/path", "method", Some("signal"), "some/path:method:signal"),
+            (
+                "some/path:method:signal",
+                "some/path",
+                "method",
+                Some("signal"),
+                "some/path:method:signal",
+            ),
             (":", "", "", None, "**:*"),
             ("**::", "**", "", Some(""), "**:*:*"),
         ] {
             let ri = ShvRI::try_from(ri)?;
-            assert_eq!((ri.path(), ri.method(), ri.signal(), &ri.to_glob_string()[..]), (path, method, signal, glob));
+            assert_eq!(
+                (
+                    ri.path(),
+                    ri.method(),
+                    ri.signal(),
+                    &ri.to_glob_string()[..]
+                ),
+                (path, method, signal, glob)
+            );
         }
         Ok(())
     }
