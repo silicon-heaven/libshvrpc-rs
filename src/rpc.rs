@@ -85,21 +85,20 @@ impl ShvRI {
         let method = self.method();
         let method = if method.is_empty() { "*" } else { method };
         let signal = self.signal().map(|s| if s.is_empty() { "*" } else { s });
-        let signal = if let Some(signal) = signal {
-            Some(
-                Pattern::new(signal)
-                    .map_err(|e| format!("Parse signal glob: '{}' error: {}", self, e))?,
-            )
-        } else {
-            None
-        };
         Ok(Glob {
             path: Pattern::new(path)
                 .map_err(|e| format!("Parse path glob: '{}' error: {}", self, e))?,
             method: Pattern::new(method)
                 .map_err(|e| format!("Parse method glob: '{}' error: {}", self, e))?,
-            signal,
-            ri: self.clone(),
+            signal: if let Some(signal) = signal {
+                Some(
+                    Pattern::new(signal)
+                        .map_err(|e| format!("Parse signal glob: '{}' error: {}", self, e))?,
+                )
+            } else {
+                None
+            },
+            ri: ShvRI::from_path_method_signal(path, method, signal),
         })
     }
     pub fn as_str(&self) -> &str {
@@ -247,7 +246,7 @@ mod tests {
         ] {
             let ri = ShvRI::try_from(ri)?;
             assert_eq!(
-                (ri.path(), ri.method(), ri.signal(), ri.as_str()),
+                (ri.path(), ri.method(), ri.signal(), ri.to_glob()?.as_str()),
                 (path, method, signal, glob)
             );
         }
