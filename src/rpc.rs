@@ -226,11 +226,6 @@ impl Subscription {
         self.glob.match_shv_ri(shv_ri)
     }
 }
-//impl Display for Subscription {
-//    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//        write!(f, "{}", self.glob_str())
-//    }
-//}
 
 #[cfg(test)]
 mod tests {
@@ -252,12 +247,7 @@ mod tests {
         ] {
             let ri = ShvRI::try_from(ri)?;
             assert_eq!(
-                (
-                    ri.path(),
-                    ri.method(),
-                    ri.signal(),
-                    &ri.to_glob_string()[..]
-                ),
+                (ri.path(), ri.method(), ri.signal(), ri.as_str()),
                 (path, method, signal, glob)
             );
         }
