@@ -375,6 +375,7 @@ impl TryFrom<i32> for RpcErrorCode {
     }
 }
 
+#[derive(Clone)]
 pub struct RpcError {
     pub code: RpcErrorCode,
     pub message: String,
