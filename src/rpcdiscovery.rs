@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use shvproto::RpcValue;
 
 use crate::metamethod::{AccessLevel, DirAttribute};
@@ -121,6 +123,7 @@ pub struct MethodInfo {
     pub access_level: AccessLevel,
     pub param: String,
     pub result: String,
+    pub signals: BTreeMap<String, Option<String>>,
 }
 
 impl TryFrom<&RpcValue> for MethodInfo {
@@ -152,6 +155,24 @@ impl TryFrom<&RpcValue> for MethodInfo {
                     result: get_key(DirAttribute::Result)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Result, &e))?,
+                    signals: {
+                        let signals_map: BTreeMap<String, RpcValue> = get_key(DirAttribute::Signals)
+                            .unwrap_or_default()
+                            .try_into()
+                            .map_err(|e| format_err(DirAttribute::Signals, &e))?;
+                        let mut res: BTreeMap<String, Option<String>> = BTreeMap::new();
+                        for (key, val) in signals_map.into_iter() {
+                            res.insert(
+                                key.to_owned(),
+                                match val.value() {
+                                    shvproto::Value::Null => Ok(None),
+                                    shvproto::Value::String(val) => Ok(Some(val.to_string())),
+                                    _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
+                                }?
+                            );
+                        }
+                        res
+                    },
                 })
             }
             shvproto::Value::IMap(imap) => {
@@ -181,6 +202,24 @@ impl TryFrom<&RpcValue> for MethodInfo {
                     result: get_key(DirAttribute::Result)?
                         .try_into()
                         .map_err(|e| format_err(DirAttribute::Result, &e))?,
+                    signals: {
+                        let signals_map: BTreeMap<String, RpcValue> = get_key(DirAttribute::Signals)
+                            .unwrap_or_default()
+                            .try_into()
+                            .map_err(|e| format_err(DirAttribute::Signals, &e))?;
+                        let mut res: BTreeMap<String, Option<String>> = BTreeMap::new();
+                        for (key, val) in signals_map.into_iter() {
+                            res.insert(
+                                key.to_owned(),
+                                match val.value() {
+                                    shvproto::Value::Null => Ok(None),
+                                    shvproto::Value::String(val) => Ok(Some(val.to_string())),
+                                    _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
+                                }?
+                            );
+                        }
+                        res
+                    },
                 })
             }
             _ => Err(format!("Wrong RpcValue type for MethodInfo: {}", value.type_name())),
@@ -267,6 +306,7 @@ mod test {
             access_level: AccessLevel::Read,
             param: "param".to_string(),
             result: "result".to_string(),
+            signals: [("sig".to_string(), Some("String".to_string()))].into_iter().collect(),
         }
     }
 
@@ -278,6 +318,7 @@ mod test {
             "access" => "rd",
             "param" => "param",
             "result" => "result",
+            "signals" => shvproto::make_map!("sig" => Some("String")),
         ).into();
         assert_eq!(method_info(), (&rv_map).try_into().unwrap());
 
@@ -287,6 +328,7 @@ mod test {
             "accessGrant" => "rd",
             "param" => "param",
             "result" => "result",
+            "signals" => shvproto::make_map!("sig" => Some("String")),
         ).into();
         assert_eq!(method_info(), (&rv_map).try_into().unwrap());
 
@@ -296,6 +338,7 @@ mod test {
             (i32::from(DirAttribute::AccessLevel), RpcValue::from(AccessLevel::Read as i32)),
             (i32::from(DirAttribute::Param), RpcValue::from("param")),
             (i32::from(DirAttribute::Result), RpcValue::from("result")),
+            (i32::from(DirAttribute::Signals), RpcValue::from(shvproto::make_map!("sig" => Some("String")))),
         ].into_iter().collect::<BTreeMap::<_,_>>().into();
         assert_eq!(method_info(), (&rv_imap).try_into().unwrap());
     }
@@ -309,6 +352,7 @@ mod test {
             // "access" => AccessLevel::Read as i32,
             "param" => "param",
             "result" => "result",
+            "signals" => shvproto::make_map!("sig" => Some("String")),
         ).into();
         let _:MethodInfo = (&rv_map).try_into().unwrap();
     }
@@ -322,6 +366,7 @@ mod test {
             "access" => AccessLevel::Read as i32,
             "param" => (),
             "result" => "result",
+            "signals" => shvproto::make_map!("sig" => Some("String")),
         ).into();
         let _:MethodInfo = (&rv_map).try_into().unwrap();
     }
@@ -360,6 +405,7 @@ mod test {
                 "access" => "rd",
                 "param" => "param",
                 "result" => "result",
+                "signals" => shvproto::make_map!("sig" => Some("String")),
             )
         ]
         .into_iter()
