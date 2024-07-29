@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use shvproto::{RpcValue, rpcvalue};
 
 #[derive(Debug)]
@@ -119,6 +121,7 @@ pub struct MetaMethod {
     pub access: AccessLevel,
     pub param: &'static str,
     pub result: &'static str,
+    pub signals: &'static [(&'static str, Option<&'static str>)],
     pub description: &'static str,
 }
 impl Default for MetaMethod {
@@ -129,6 +132,7 @@ impl Default for MetaMethod {
             access: AccessLevel::Browse,
             param: "",
             result: "",
+            signals: &[],
             description: "",
         }
     }
@@ -148,6 +152,12 @@ impl MetaMethod {
                 m.insert(DirAttribute::Param.into(), (self.param).into());
                 m.insert(DirAttribute::Result.into(), (self.result).into());
                 m.insert(DirAttribute::AccessLevel.into(), (self.access as i32).into());
+                m.insert(DirAttribute::Signals.into(), self.signals
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), value.map_or_else(RpcValue::null, RpcValue::from)))
+                    .collect::<BTreeMap<_,_>>()
+                    .into()
+                );
                 m.into()
             }
             DirFormat::Map => {
@@ -157,6 +167,12 @@ impl MetaMethod {
                 m.insert(DirAttribute::Param.into(), (self.param).into());
                 m.insert(DirAttribute::Result.into(), (self.result).into());
                 m.insert(DirAttribute::AccessLevel.into(), (self.access as i32).into());
+                m.insert(DirAttribute::Signals.into(), self.signals
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), value.map_or_else(RpcValue::null, RpcValue::from)))
+                    .collect::<BTreeMap<_,_>>()
+                    .into()
+                );
                 m.insert("description".into(), (self.description).into());
                 m.into()
             }
@@ -172,6 +188,7 @@ pub enum DirAttribute {
     Param,
     Result,
     AccessLevel,
+    Signals,
 }
 impl From<DirAttribute> for i32 {
     fn from(val: DirAttribute) -> Self {
@@ -187,6 +204,7 @@ impl From<DirAttribute> for &str {
             DirAttribute::Result => "result",
             // TODO: some implementations return "accessGrant" key in the result of dir
             DirAttribute::AccessLevel => "access",
+            DirAttribute::Signals => "signals",
         }
     }
 }
