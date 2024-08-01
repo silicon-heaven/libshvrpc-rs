@@ -13,19 +13,18 @@ pub struct Glob {
 
 impl Glob {
     pub fn match_shv_ri(&self, shv_ri: &ShvRI) -> bool {
-        // if signal is granted => method is granted as well
-        // path:: => path:
-        // path:method: => path:method
-        // path::signal => broker - doesn't know which method has the 'signal' => no implicit rule for method
-        if self.path.matches(shv_ri.path()) && self.method.matches(shv_ri.path()) {
-            if let Some(signal_pattern) = &self.signal {
-                if let Some(signal) = shv_ri.signal() {
-                    return signal_pattern.matches(signal);
+        // if method is granted => signal is granted as well
+        if self.path.matches(shv_ri.path()) && self.method.matches(shv_ri.method()) {
+            // path and method match
+            if let Some(glob_signal_pattern) = &self.signal {
+                // glob has signal defined
+                if let Some(ri_signal) = shv_ri.signal() {
+                    // RI has signal defined
+                    return glob_signal_pattern.matches(ri_signal);
                 } else {
-                    let any_signal = signal_pattern.as_str() == "*";
-                    return any_signal;
+                    return false;
                 }
-            } else if shv_ri.signal().is_none() {
+            } else {
                 return true;
             }
         }
@@ -81,10 +80,8 @@ impl ShvRI {
     }
     pub fn to_glob(&self) -> Result<Glob, String> {
         let path = self.path();
-        let path = if path.is_empty() { "**" } else { path };
         let method = self.method();
-        let method = if method.is_empty() { "*" } else { method };
-        let signal = self.signal().map(|s| if s.is_empty() { "*" } else { s });
+        let signal = self.signal();
         Ok(Glob {
             path: Pattern::new(path)
                 .map_err(|e| format!("Parse path glob: '{}' error: {}", self, e))?,
@@ -98,33 +95,20 @@ impl ShvRI {
             } else {
                 None
             },
-            ri: ShvRI::from_path_method_signal(path, method, signal),
+            ri: ShvRI::from_path_method_signal(path, method, signal)?,
         })
     }
     pub fn as_str(&self) -> &str {
         &self.ri
     }
-    pub fn from_path_method_signal(path: &str, method: &str, signal: Option<&str>) -> Self {
+    pub fn from_path_method_signal(path: &str, method: &str, signal: Option<&str>) -> Result<Self, String> {
         let ri = if let Some(signal) = signal {
+            let method = if method.is_empty() { "*" } else { method };
             format!("{path}:{method}:{signal}")
         } else {
             format!("{path}:{method}")
         };
-        Self::try_from(ri).expect("Valid RI string")
-    }
-    pub fn normalized(&self) -> Self {
-        let path = if self.path().is_empty() {
-            "**"
-        } else {
-            self.path()
-        };
-        let method = if self.method().is_empty() {
-            "**"
-        } else {
-            self.method()
-        };
-        let signal = self.signal().map(|s| if s.is_empty() { "* " } else { s });
-        Self::from_path_method_signal(path, method, signal)
+        Ok(Self::try_from(ri)?)
     }
 }
 impl TryFrom<&str> for ShvRI {
@@ -143,11 +127,19 @@ impl TryFrom<String> for ShvRI {
         let signal_sep_ix = s[method_sep_ix + 1..]
             .find(':')
             .map(|ix| ix + method_sep_ix + 1);
-        Ok(ShvRI {
+        let ri = ShvRI {
             ri: s,
             method_sep_ix,
             signal_sep_ix,
-        })
+        };
+        if ri.method().is_empty() {
+            Err("Method must not be empty.")
+        } else if ri.signal().is_some() && ri.signal().unwrap().is_empty() {
+            Err("Signal, if present, must not be empty.")
+        }
+         else {
+            Ok(ri)
+        }
     }
 }
 impl Display for ShvRI {
@@ -178,7 +170,7 @@ impl SubscriptionParam {
                 Err("Empty map".into())
             } else {
                 Ok(SubscriptionParam {
-                    ri: ShvRI::from_path_method_signal(paths, source, signal),
+                    ri: ShvRI::from_path_method_signal(paths, source, signal)?,
                     ttl: 0,
                 })
             }
@@ -233,22 +225,64 @@ mod tests {
     #[test]
     fn test_shvri() -> Result<(), String> {
         for (ri, path, method, signal, glob) in vec![
-            ("::", "", "", Some(""), "**:*:*"),
-            (
-                "some/path:method:signal",
-                "some/path",
-                "method",
-                Some("signal"),
-                "some/path:method:signal",
-            ),
-            (":", "", "", None, "**:*"),
-            ("**::", "**", "", Some(""), "**:*:*"),
+            (":*:*", "", "*", Some("*"), ":*:*"),
+            ("some/path:method:signal", "some/path", "method", Some("signal"), "some/path:method:signal",),
+            (":*", "", "*", None, ":*"),
+            ("**:*:*", "**", "*", Some("*"), "**:*:*"),
         ] {
             let ri = ShvRI::try_from(ri)?;
             assert_eq!(
                 (ri.path(), ri.method(), ri.signal(), ri.to_glob()?.as_str()),
                 (path, method, signal, glob)
             );
+        }
+        Ok(())
+    }
+    #[test]
+    #[should_panic]
+    fn test_invalid_shvri() {
+        ShvRI::try_from("::").unwrap();
+    }
+    #[test]
+    fn test_glob() -> Result<(), String> {
+        for (path, ri, is_match) in vec![
+            (".app:name", "**:*", true),
+            (".app:name", "**:get", false),
+            (".app:name", "test:*", false),
+            (".app:name", "test/**:get:*chng", false),
+
+            ("sub/device/track:get", "**:*", true),
+            ("sub/device/track:get", "**:get", true),
+            ("sub/device/track:get", "test:*", false),
+            ("sub/device/track:get", "test/**:get:*chng", false),
+
+            ("test/device/track:get", "**:*", true),
+            ("test/device/track:get", "**:get", true),
+            ("test/device/track:get", "test/**:*", true),
+            ("test/device/track:get", "test/**:get:*chng", false),
+
+            ("test/device/track:get:chng", "**:*:*", true),
+            ("test/device/track:get:chng", "**:get:*", true),
+            ("test/device/track:get:chng", "test/**:get:*chng", true),
+            ("test/device/track:get:chng", "test/*:ls:lsmod", false),
+            ("test/device/track:get:chng", "test/**:get", true),
+
+            ("test/device/track:get:mod", "**:*:*", true),
+            ("test/device/track:get:mod", "**:get:*", true),
+            ("test/device/track:get:mod", "test/**:get:*chng", false),
+            ("test/device/track:get:mod", "test/*:ls:lsmod", false),
+            ("test/device/track:get:mod", "test/**:get", true),
+
+            ("test/device/track:ls:lsmod", "**:*:*", true),
+            ("test/device/track:ls:lsmod", "**:get:*", false),
+            ("test/device/track:ls:lsmod", "test/**:get:*chng", false),
+            ("test/device/track:ls:lsmod", "test/*:ls:lsmod", true),
+            ("test/device/track:ls:lsmod", "test/**:get", false),
+        ] {
+            // println!("{path} {ri}");
+            let glob = ShvRI::try_from(ri)?.to_glob()?;
+            let m = glob.match_shv_ri(&ShvRI::try_from(path)?);
+            assert_eq!(m, is_match);
         }
         Ok(())
     }
