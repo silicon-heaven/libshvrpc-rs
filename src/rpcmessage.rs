@@ -15,7 +15,10 @@ use crate::rpctype;
 static G_RPC_REQUEST_COUNT: AtomicI64 = AtomicI64::new(0);
 
 pub type RqId = i64;
-pub type CliId = i32;
+pub type PeerId = i32;
+
+// backward compatibility
+pub type CliId = PeerId;
 
 #[allow(dead_code)]
 pub enum Tag {
@@ -244,39 +247,39 @@ pub trait RpcMessageMetaTags {
         self.set_tag(Tag::AccessLevel as i32, Some(RpcValue::from(grant as i32)))
     }
 
-    fn caller_ids(&self) -> Vec<CliId> {
+    fn caller_ids(&self) -> Vec<PeerId> {
         let t = self.tag(Tag::CallerIds as i32);
         match t {
             None => Vec::new(),
             Some(rv) => {
                 if rv.is_int() {
-                    return vec![rv.as_int() as CliId];
+                    return vec![rv.as_int() as PeerId];
                 }
                 if rv.is_list() {
-                    return rv.as_list().iter().map(|v| v.as_int() as CliId).collect();
+                    return rv.as_list().iter().map(|v| v.as_int() as PeerId).collect();
                 }
                 Vec::new()
             },
         }
     }
 
-    fn set_caller_ids(&mut self, ids: &[CliId]) -> &mut Self::Target {
+    fn set_caller_ids(&mut self, ids: &[PeerId]) -> &mut Self::Target {
         if ids.is_empty() {
             return self.set_tag(Tag::CallerIds as i32, None);
         }
         if ids.len() == 1 {
-            return self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(ids[0] as CliId)));
+            return self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(ids[0] as PeerId)));
         }
         let lst: List = ids.iter().map(|v| RpcValue::from(*v)).collect();
         return self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(lst)));
     }
 
-    fn push_caller_id(&mut self, id: CliId) -> &mut Self::Target {
+    fn push_caller_id(&mut self, id: PeerId) -> &mut Self::Target {
         let mut ids = self.caller_ids();
-        ids.push(id as CliId);
+        ids.push(id as PeerId);
         self.set_caller_ids(&ids)
     }
-    fn pop_caller_id(&mut self) -> Option<CliId> {
+    fn pop_caller_id(&mut self) -> Option<PeerId> {
         let mut ids = self.caller_ids();
         let id = ids.pop();
         match id {
