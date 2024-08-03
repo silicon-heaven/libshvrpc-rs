@@ -50,7 +50,7 @@ impl TryFrom<&str> for Glob {
         ri.to_glob()
     }
 }
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ShvRI {
     ri: String,
     method_sep_ix: usize,
@@ -196,25 +196,6 @@ impl SubscriptionParam {
             RpcValue::from(self.ttl),
         ];
         RpcValue::from(lst)
-    }
-}
-
-#[derive(Debug)]
-pub struct Subscription {
-    pub param: SubscriptionParam,
-    pub glob: Glob,
-}
-
-impl Subscription {
-    pub fn new(subpar: &SubscriptionParam) -> crate::Result<Self> {
-        let glob = subpar.ri.to_glob()?;
-        Ok(Self {
-            param: subpar.clone(),
-            glob,
-        })
-    }
-    pub fn match_shv_ri(&self, shv_ri: &ShvRI) -> bool {
-        self.glob.match_shv_ri(shv_ri)
     }
 }
 
