@@ -28,6 +28,30 @@ pub fn join_path(p1: &str, p2: &str) -> String {
         p1.to_string() + "/" + p2
     }
 }
+pub fn starts_with_path(shv_path: &str, with_path: &str) -> bool {
+    let with_path = if let Some(with_path) = with_path.strip_suffix('/') {
+        with_path
+    } else {
+        with_path
+    };
+    if with_path.is_empty() {
+        return true
+    }
+    shv_path.starts_with(with_path)
+        && (shv_path.len() == with_path.len() || shv_path[with_path.len() ..].starts_with('/'))
+}
+
+pub fn strip_prefix_path<'a>(shv_path: &'a str, to_strip: &str) -> Option<&'a str> {
+    if let Some(strip) = shv_path.strip_prefix(to_strip) {
+        if let Some(strip) = strip.strip_prefix('/') {
+            Some(strip)
+        } else {
+            Some(strip)
+        }
+    } else {
+        None
+    }
+}
 
 pub fn parse_log_verbosity<'a>(verbosity: &'a str, module_path: &'a str) -> Vec<(&'a str, LevelFilter)> {
     let mut ret: Vec<(&str, LevelFilter)> = Vec::new();
@@ -197,7 +221,7 @@ pub fn hex_dump(data: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::util::{glob_len, left_glob, split_glob_on_match};
+    use crate::util::{glob_len, left_glob, split_glob_on_match, starts_with_path, strip_prefix_path};
 
     #[test]
     fn test_glob_len() {
@@ -251,4 +275,37 @@ mod tests {
             assert_eq!(split_glob_on_match(glob, path), Ok(result));
         }
     }
+    #[test]
+    fn test_start_with_path() {
+        let data = vec![
+            ("", "", true),
+            ("a", "", true),
+            ("", "a", false),
+            ("a/b/c", "a/b/c", true),
+            ("a/b/c", "a/b/", true),
+            ("a/b/c", "a/b", true),
+            ("a/b/c", "b/b", false),
+        ];
+        for (path, with_path, res) in data {
+            //println!("path: {path}, with: {with_path}");
+            assert_eq!(starts_with_path(path, with_path), res);
+        }
+    }
+    #[test]
+    fn test_strip_path() {
+        let data = vec![
+            ("", "", Some("")),
+            ("a", "", Some("a")),
+            ("", "a", None),
+            ("a/b/c", "a/b/c", Some("")),
+            ("a/b/c", "a/b/", Some("c")),
+            ("a/b/c", "a/b", Some("c")),
+            ("a/b/c", "b/b", None),
+        ];
+        for (path, prefix_path, res) in data {
+            println!("path: {path}, prefix: {prefix_path}");
+            assert_eq!(strip_prefix_path(path, prefix_path), res);
+        }
+    }
+
 }
