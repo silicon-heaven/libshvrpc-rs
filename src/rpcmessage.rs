@@ -15,7 +15,7 @@ use crate::rpctype;
 static G_RPC_REQUEST_COUNT: AtomicI64 = AtomicI64::new(0);
 
 pub type RqId = i64;
-pub type PeerId = i32;
+pub type PeerId = i64;
 
 // backward compatibility
 pub type CliId = PeerId;
@@ -258,7 +258,7 @@ pub trait RpcMessageMetaTags {
                 if rv.is_list() {
                     return rv.as_list().iter().map(|v| v.as_int() as PeerId).collect();
                 }
-                Vec::new()
+                return vec![];
             },
         }
     }
