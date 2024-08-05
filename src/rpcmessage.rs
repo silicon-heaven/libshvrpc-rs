@@ -258,7 +258,7 @@ pub trait RpcMessageMetaTags {
                 if rv.is_list() {
                     return rv.as_list().iter().map(|v| v.as_int() as PeerId).collect();
                 }
-                return vec![];
+                vec![]
             },
         }
     }
