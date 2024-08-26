@@ -40,13 +40,28 @@ pub fn starts_with_path(shv_path: &str, with_path: &str) -> bool {
     shv_path.starts_with(with_path)
         && (shv_path.len() == with_path.len() || shv_path[with_path.len() ..].starts_with('/'))
 }
-
-pub fn strip_prefix_path<'a>(shv_path: &'a str, to_strip: &str) -> Option<&'a str> {
-    if let Some(strip) = shv_path.strip_prefix(to_strip) {
-        if let Some(strip) = strip.strip_prefix('/') {
+/// Returns `shv_path` without `to_strip` prefix.
+///
+/// Should behave like:
+/// 1. split `shv_path` on `/`
+/// 2. split `to_strip` on `/`
+/// 3. remove prefix, if any
+/// 4. join rest with '/'
+pub fn strip_prefix_path<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
+    if let Some(strip) = path.strip_prefix(prefix) {
+        if strip.is_empty() {
             Some(strip)
         } else {
-            Some(strip)
+            match strip.strip_prefix('/') {
+                None => {
+                    if prefix.is_empty() {
+                        Some(strip)
+                    } else {
+                        None
+                    }
+                }
+                Some(strip) => { Some(strip) }
+            }
         }
     } else {
         None
@@ -295,16 +310,22 @@ mod tests {
     fn test_strip_path() {
         let data = vec![
             ("", "", Some("")),
-            ("a", "", Some("a")),
-            ("", "a", None),
+            ("", "/", Some("")),
+            ("", "/a", Some("a")),
+            ("", "a", Some("a")),
+            ("/", "", None),
+            ("a", "", None),
+            ("a/", "a", None),
             ("a/b/c", "a/b/c", Some("")),
-            ("a/b/c", "a/b/", Some("c")),
-            ("a/b/c", "a/b", Some("c")),
-            ("a/b/c", "b/b", None),
+            ("a/b/", "a/b/c", None),
+            ("a/b", "a/b/c", Some("c")),
+            ("b/b", "a/b/c", None),
+            ("a", "abc", None),
+            ("a/b", "a/bc", None),
         ];
-        for (path, prefix_path, res) in data {
-            println!("path: {path}, prefix: {prefix_path}");
-            assert_eq!(strip_prefix_path(path, prefix_path), res);
+        for (prefix, path, res) in data {
+            println!("prefix: {prefix}, path: {path}");
+            assert_eq!(strip_prefix_path(path, prefix), res);
         }
     }
 

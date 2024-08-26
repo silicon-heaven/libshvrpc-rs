@@ -278,7 +278,7 @@ mod tests {
     }
     #[test]
     fn test_subscription_param() -> Result<(), String> {
-        for sp1 in vec![
+        for sp1 in [
             SubscriptionParam { ri: ShvRI::try_from("*:*:*")?, ttl: None },
             SubscriptionParam { ri: ShvRI::try_from("*:*:chng")?, ttl: Some(0) },
             SubscriptionParam { ri: ShvRI::try_from("*:*:fchng")?, ttl: Some(123) },
