@@ -150,7 +150,7 @@ impl Display for ShvRI {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubscriptionParam {
     pub ri: ShvRI,
-    pub ttl: u32,
+    pub ttl: Option<u32>,
 }
 impl SubscriptionParam {
     pub fn from_rpcvalue(value: &RpcValue) -> Result<Self, String> {
@@ -171,7 +171,7 @@ impl SubscriptionParam {
             } else {
                 Ok(SubscriptionParam {
                     ri: ShvRI::from_path_method_signal(paths, source, signal)?,
-                    ttl: 0,
+                    ttl: None,
                 })
             }
         } else if value.is_list() {
@@ -180,13 +180,22 @@ impl SubscriptionParam {
             if ri.is_empty() {
                 Err("Empty SHV RI".into())
             } else {
-                let ttl = lst.get(1).map(|v| v.as_u32()).unwrap_or(0);
+                let ttl = lst.get(1).unwrap_or_default().clone();
                 Ok(SubscriptionParam {
                     ri: ri.try_into()?,
-                    ttl,
+                    ttl: if ttl.is_null() { None } else { Some(ttl.as_u32()) },
                 })
             }
-        } else {
+        } else if value.is_string() {
+            let ri = value.as_str();
+            if ri.is_empty() {
+                Err("Empty SHV RI".into())
+            } else {
+                Ok(SubscriptionParam {
+                    ri: ri.try_into()?,
+                    ttl: None,
+                })
+            }        } else {
             Err("Unsupported RPC value type.".into())
         }
     }
@@ -201,7 +210,7 @@ impl SubscriptionParam {
 
 #[cfg(test)]
 mod tests {
-    use crate::rpc::ShvRI;
+    use crate::rpc::{ShvRI, SubscriptionParam};
 
     #[test]
     fn test_shvri() -> Result<(), String> {
@@ -264,6 +273,19 @@ mod tests {
             let glob = ShvRI::try_from(ri)?.to_glob()?;
             let m = glob.match_shv_ri(&ShvRI::try_from(path)?);
             assert_eq!(m, is_match);
+        }
+        Ok(())
+    }
+    #[test]
+    fn test_subscription_param() -> Result<(), String> {
+        for sp1 in vec![
+            SubscriptionParam { ri: ShvRI::try_from("*:*:*")?, ttl: None },
+            SubscriptionParam { ri: ShvRI::try_from("*:*:chng")?, ttl: Some(0) },
+            SubscriptionParam { ri: ShvRI::try_from("*:*:fchng")?, ttl: Some(123) },
+        ] {
+            let rv = sp1.to_rpcvalue();
+            let sp2 = SubscriptionParam::from_rpcvalue(&rv)?;
+            assert_eq!(sp1, sp2);
         }
         Ok(())
     }
