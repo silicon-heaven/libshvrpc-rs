@@ -42,6 +42,9 @@ pub enum Key {Params = 1, Result, Error, ErrorCode, ErrorMessage, MAX }
 #[derive(Clone, Debug)]
 pub struct RpcMessage (RpcValue);
 impl RpcMessage {
+    pub fn meta(&self) -> &MetaMap {
+        self.0.meta()
+    }
     pub fn from_meta(meta: MetaMap) -> Self {
         RpcMessage(RpcValue::from(IMap::new()).set_meta(Some(meta)))
     }
