@@ -80,7 +80,7 @@ impl RpcMessage {
         match self.key(Key::Result as i32) {
             None => {
                 match self.error() {
-                    None => {Err(RpcError{ code: RpcErrorCode::InternalError, message: "Neither result nor error key found ins RPC response.".to_string() })}
+                    None => {Err(RpcError{ code: RpcErrorCode::InternalError, message: "Neither 'result' nor 'error' key found in RPC response.".to_string() })}
                     Some(err) => {Err(err)}
                 }
             }
@@ -265,7 +265,6 @@ pub trait RpcMessageMetaTags {
             },
         }
     }
-
     fn set_caller_ids(&mut self, ids: &[PeerId]) -> &mut Self::Target {
         if ids.is_empty() {
             return self.set_tag(Tag::CallerIds as i32, None);
@@ -276,7 +275,6 @@ pub trait RpcMessageMetaTags {
         let lst: List = ids.iter().map(|v| RpcValue::from(*v)).collect();
         return self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(lst)));
     }
-
     fn push_caller_id(&mut self, id: PeerId) -> &mut Self::Target {
         let mut ids = self.caller_ids();
         ids.push(id as PeerId);
