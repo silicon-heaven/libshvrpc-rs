@@ -154,6 +154,14 @@ impl RpcMessage {
         msg.set_param_opt(param);
         msg
     }
+    pub fn new_signal_with_source(shvpath: &str, method: &str, source: &str, param: Option<RpcValue>) -> Self {
+        let mut msg = Self::default();
+        msg.set_shvpath(shvpath);
+        msg.set_method(method);
+        msg.set_source(source);
+        msg.set_param_opt(param);
+        msg
+    }
     pub fn create_request_with_id(rq_id: RqId, shvpath: &str, method: &str, param: Option<RpcValue>) -> Self {
         let mut msg = Self::default();
         msg.set_request_id(rq_id);
