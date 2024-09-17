@@ -1,19 +1,27 @@
-use std::io::{BufReader};
+use std::io::BufReader;
 use async_trait::async_trait;
+use futures_time::future::FutureExt;
 use crate::rpcframe::{Protocol, RpcFrame};
+use crate::rpcmessage::RpcError;
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use log::*;
-use shvproto::{ChainPackReader, ChainPackWriter, Reader, ReadError};
-use crate::framerw::{FrameReader, FrameWriter, serialize_meta};
+use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, ReadError, Reader};
+use crate::framerw::{serialize_meta, FrameReader, FrameWriter, RpcFrameParts};
 use shvproto::reader::ReadErrorReason;
 
 pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
     reader: R,
+    bytes_read: usize,
+    meta: Option<MetaMap>,
+    data: Vec<u8>,
 }
 impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
-            reader
+            reader,
+            bytes_read: 0,
+            data: Vec::new(),
+            meta: None,
         }
     }
     async fn get_byte(&mut self) -> crate::Result<u8> {
@@ -26,8 +34,98 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         }
     }
 }
+
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
+    async fn receive_frame_meta_data(&mut self) -> crate::Result<RpcFrameParts> {
+        Ok(
+        if self.meta.is_none() {
+            RpcFrameParts::Meta(self.receive_frame_meta().await?)
+        } else {
+            RpcFrameParts::Frame(self.receive_frame_data().await?)
+        })
+    }
+
+    async fn receive_frame_meta(&mut self) -> crate::Result<MetaMap> {
+        let mut lendata: Vec<u8> = vec![];
+        let frame_len = loop {
+            lendata.push(self.get_byte().await?);
+            //let mut cursor = Cursor::new(&lendata);
+            let mut buffrd = BufReader::new(&lendata[..]);
+
+            let mut rd = ChainPackReader::new(&mut buffrd);
+            match rd.read_uint_data() {
+                Ok(len) => {
+                    if len > 1 {
+                        break len as usize
+                    }
+                    return Err(format!("Invalid frame size: {len}").into())
+                }
+                Err(err) => {
+                    let msg = err.to_string();
+                    let ReadError{reason, .. } = err;
+                    match reason {
+                        ReadErrorReason::UnexpectedEndOfStream => { continue }
+                        ReadErrorReason::InvalidCharacter => { return Err(msg.into()) }
+                    }
+                }
+            };
+        };
+        // log!(target: "RpcData", Level::Debug, "Frame length {}", frame_len);
+        // log!(target: "RpcData", Level::Debug, "Frame length data\n{}", hex_dump(&lendata));
+        let protocol = self.get_byte().await.map_err(|e| format!("Cannot read protocol byte: {e}"))?;
+        if protocol != Protocol::ChainPack as u8 {
+            return Err("Not a chainpack message".into());
+        }
+
+        let frame_len = frame_len - 1;
+        self.data = vec![0u8; frame_len];
+        self.bytes_read = 0_usize;
+        while self.bytes_read < frame_len {
+            self.bytes_read += self.reader.read(&mut self.data[self.bytes_read ..]).await?;
+            let mut buffrd = BufReader::new(&self.data[..]);
+            let mut rd = ChainPackReader::new(&mut buffrd);
+            if let Ok(Some(meta)) = rd.try_read_meta() {
+                let meta_len = rd.position() + 1;
+                self.data.drain(0..meta_len);
+                self.bytes_read -= meta_len;
+                self.meta = Some(meta.clone());
+                log!(target: "RpcMsg", Level::Debug, "R(meta)==> {}", &meta);
+                return Ok(meta);
+            }
+        }
+        Err("Meta data read error".into())
+    }
+
+    async fn receive_frame_data(&mut self) -> crate::Result<RpcFrame> {
+        let Some(meta) = &mut self.meta else {
+            return Err("Cannot receive data without meta".into());
+        };
+        // Make sure that self.meta is invalidated in case this call
+        // fails, so subsequent reads will start from a new meta.
+        let meta = std::mem::take(meta);
+        let data_len = self.data.len();
+        while self.bytes_read < data_len {
+            match self.reader.read(&mut self.data[self.bytes_read ..]).timeout(futures_time::time::Duration::from_secs(5)).await {
+                Ok(res) => self.bytes_read += res?,
+                Err(err) => return Ok(
+                    RpcFrame {
+                        protocol: Protocol::ChainPack,
+                        meta,
+                        data: RpcError::new(crate::rpcmessage::RpcErrorCode::MethodCallTimeout, err.to_string())
+                            .to_rpcvalue()
+                            .to_chainpack(),
+                    })
+            }
+        }
+        Ok(RpcFrame {
+            protocol: Protocol::ChainPack,
+            meta,
+            data: std::mem::take(&mut self.data)
+        })
+    }
+
+    // TODO: replace with receive_frame_meta_data
     async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
         let mut lendata: Vec<u8> = vec![];
         let frame_len = loop {
