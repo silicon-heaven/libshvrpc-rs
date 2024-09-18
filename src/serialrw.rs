@@ -1,11 +1,13 @@
 use std::io::{BufReader};
 use async_trait::async_trait;
 use crc::CRC_32_ISO_HDLC;
+use futures_time::future::FutureExt;
 use crate::rpcframe::{Protocol, RpcFrame};
+use crate::rpcmessage::{RpcError, RpcErrorCode};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use log::*;
-use shvproto::{ChainPackReader, Reader};
-use crate::framerw::{FrameReader, FrameWriter, serialize_meta};
+use shvproto::{ChainPackReader, MetaMap, Reader};
+use crate::framerw::{serialize_meta, FrameReader, FrameWriter, RpcFrameParts};
 
 const STX: u8 = 0xA2;
 const ETX: u8 = 0xA3;
@@ -16,6 +18,8 @@ const ESTX: u8 = 0x02;
 const EETX: u8 = 0x03;
 const EATX: u8 = 0x04;
 const EESC: u8 = 0x0A;
+
+#[derive(Debug)]
 pub enum Byte {
     Data(u8),
     Stx,
@@ -26,12 +30,16 @@ pub enum Byte {
 pub struct SerialFrameReader<R: AsyncRead + Unpin + Send> {
     reader: R,
     with_crc: bool,
+    has_stx: bool,
+    meta: Option<MetaMap>,
 }
 impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
             reader,
             with_crc: false,
+            has_stx: false,
+            meta: None,
         }
     }
     pub fn with_crc_check(mut self, on: bool) -> Self {
@@ -84,6 +92,132 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
+    async fn receive_frame_meta_data(&mut self) -> crate::Result<RpcFrameParts> {
+        Ok(
+        if self.meta.is_none() {
+            RpcFrameParts::Meta(self.receive_frame_meta().await?)
+        } else {
+            RpcFrameParts::Frame(self.receive_frame_data().await?)
+        })
+    }
+
+    async fn receive_frame_meta(&mut self) -> crate::Result<MetaMap> {
+        self.meta = None;
+        self.has_stx = false;
+        'read_frame: loop {
+            if !self.has_stx {
+                loop {
+                    match self.get_escaped_byte().await? {
+                        Byte::Stx => { break }
+                        _ => { continue }
+                    }
+                }
+            }
+            self.has_stx = false;
+            let mut data: Vec<u8> = vec![];
+            loop {
+                match self.get_escaped_byte().await? {
+                    Byte::Stx => {
+                        self.has_stx = true;
+                        continue 'read_frame
+                    }
+                    Byte::Data(b) => data.push(b),
+                    Byte::Etx => break,
+                    _ => continue 'read_frame,
+                }
+                if data.len() > 1 {
+                    let protocol = data[0];
+                    if protocol != Protocol::ChainPack as u8 {
+                        log!(target: "Serial", Level::Debug, "Not chainpack message");
+                        continue 'read_frame
+                    }
+                    let mut buffrd = BufReader::new(&data[1 ..]);
+                    let mut rd = ChainPackReader::new(&mut buffrd);
+                    if let Ok(Some(meta)) = rd.try_read_meta() {
+                        self.meta = Some(meta.clone());
+                        log!(target: "RpcMsg", Level::Debug, "R(meta)==> {}", &meta);
+                        return Ok(meta);
+                    }
+                }
+            }
+            log!(target: "Serial", Level::Debug, "Meta data read error");
+            continue 'read_frame
+        }
+    }
+
+    async fn receive_frame_data(&mut self) -> crate::Result<RpcFrame> {
+        let Some(meta) = &mut self.meta else {
+            return Err("Cannot receive data without meta".into());
+        };
+        // Make sure that self.meta is invalidated in case this call
+        // fails, so subsequent reads will start from a new meta.
+        let meta = std::mem::take(meta);
+        let mut data: Vec<u8> = vec![];
+        loop {
+            match self.get_escaped_byte().timeout(futures_time::time::Duration::from_secs(5)).await {
+                Ok(res) => match res? {
+                    Byte::Data(b) => data.push(b),
+                    Byte::Etx => break,
+                    Byte::Stx => {
+                        self.has_stx = true;
+                        return Err("Unexpected STX byte".into());
+                    }
+                    byte => return Err(format!("Unexpected byte `{byte:?}`").into()),
+                }
+                Err(err) => return Ok(
+                    RpcFrame {
+                        protocol: Protocol::ChainPack,
+                        meta,
+                        data: RpcError::new(RpcErrorCode::MethodCallTimeout, err.to_string())
+                            .to_rpcvalue()
+                            .to_chainpack(),
+                    })
+            }
+        }
+        if self.with_crc {
+            let mut crc_data = [0u8; 4];
+            for crc_b in &mut crc_data {
+                match self.get_escaped_byte().timeout(futures_time::time::Duration::from_secs(5)).await {
+                    Ok(res) => match res? {
+                        Byte::Data(b) => *crc_b = b,
+                        Byte::Stx => {
+                            self.has_stx = true;
+                            return Err("Unexpected STX byte".into());
+                        }
+                        byte => return Err(format!("Unexpected byte `{byte:?}`").into()),
+                    }
+                    Err(err) => return Ok(
+                        RpcFrame {
+                            protocol: Protocol::ChainPack,
+                            meta,
+                            data: RpcError::new(RpcErrorCode::MethodCallTimeout, err.to_string())
+                                .to_rpcvalue()
+                                .to_chainpack(),
+                        })
+                }
+            }
+            fn as_u32_be(array: &[u8; 4]) -> u32 {
+                ((array[0] as u32) << 24) +
+                    ((array[1] as u32) << 16) +
+                    ((array[2] as u32) <<  8) +
+                    (array[3] as u32)
+            }
+            let crc1 = as_u32_be(&crc_data);
+            let gen = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
+            let crc2 = gen.checksum(&data);
+            //println!("CRC2 {crc2}");
+            if crc1 != crc2 {
+                log!(target: "Serial", Level::Debug, "CRC error");
+                return Err("CRC error".into());
+            }
+        }
+        Ok(RpcFrame {
+            protocol: Protocol::ChainPack,
+            meta,
+            data,
+        })
+    }
+
     async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
         let mut has_stx = false;
         'read_frame: loop {
