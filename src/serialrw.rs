@@ -1,4 +1,4 @@
-use std::io::{BufReader};
+use std::io::BufReader;
 use async_trait::async_trait;
 use crc::CRC_32_ISO_HDLC;
 use futures_time::future::FutureExt;
@@ -7,7 +7,7 @@ use crate::rpcmessage::{RpcError, RpcErrorCode};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use log::*;
 use shvproto::{ChainPackReader, MetaMap, Reader};
-use crate::framerw::{serialize_meta, FrameReader, FrameWriter, RpcFrameParts};
+use crate::framerw::{serialize_meta, FrameReader, FrameWriter, RpcFrameReception};
 
 const STX: u8 = 0xA2;
 const ETX: u8 = 0xA3;
@@ -92,12 +92,12 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
-    async fn receive_frame_meta_data(&mut self) -> crate::Result<RpcFrameParts> {
+    async fn receive_frame_meta_data(&mut self) -> crate::Result<RpcFrameReception> {
         Ok(
         if self.meta.is_none() {
-            RpcFrameParts::Meta(self.receive_frame_meta().await?)
+            RpcFrameReception::Meta(self.receive_frame_meta().await?)
         } else {
-            RpcFrameParts::Frame(self.receive_frame_data().await?)
+            RpcFrameReception::Frame(self.receive_frame_data().await?)
         })
     }
 

@@ -4,14 +4,14 @@ use shvproto::{ChainPackWriter, MetaMap, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{RpcError, RpcErrorCode, RqId};
 
-pub enum RpcFrameParts {
+pub enum RpcFrameReception {
     Meta(MetaMap),
     Frame(RpcFrame),
 }
 
 #[async_trait]
 pub trait FrameReader {
-    async fn receive_frame_meta_data(&mut self) -> crate::Result<RpcFrameParts>;
+    async fn receive_frame_meta_data(&mut self) -> crate::Result<RpcFrameReception>;
     async fn receive_frame_meta(&mut self) -> crate::Result<MetaMap>;
     async fn receive_frame_data(&mut self) -> crate::Result<RpcFrame>;
     async fn receive_frame(&mut self) -> crate::Result<RpcFrame>;

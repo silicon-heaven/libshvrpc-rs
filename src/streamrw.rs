@@ -5,7 +5,7 @@ use crate::rpcframe::{Protocol, RpcFrame};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use log::*;
 use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, ReadError, Reader};
-use crate::framerw::{serialize_meta, FrameReader, FrameWriter, RpcFrameParts};
+use crate::framerw::{serialize_meta, FrameReader, FrameWriter, RpcFrameReception};
 use shvproto::reader::ReadErrorReason;
 
 pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
@@ -36,12 +36,12 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
 
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
-    async fn receive_frame_meta_data(&mut self) -> crate::Result<RpcFrameParts> {
+    async fn receive_frame_meta_data(&mut self) -> crate::Result<RpcFrameReception> {
         Ok(
         if self.meta.is_none() {
-            RpcFrameParts::Meta(self.receive_frame_meta().await?)
+            RpcFrameReception::Meta(self.receive_frame_meta().await?)
         } else {
-            RpcFrameParts::Frame(self.receive_frame_data().await?)
+            RpcFrameReception::Frame(self.receive_frame_data().await?)
         })
     }
 
