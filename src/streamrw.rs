@@ -2,7 +2,6 @@ use std::io::BufReader;
 use async_trait::async_trait;
 use futures_time::future::FutureExt;
 use crate::rpcframe::{Protocol, RpcFrame};
-use crate::rpcmessage::RpcError;
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use log::*;
 use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, ReadError, Reader};
@@ -47,6 +46,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
     }
 
     async fn receive_frame_meta(&mut self) -> crate::Result<MetaMap> {
+        self.meta = None;
         let mut lendata: Vec<u8> = vec![];
         let frame_len = loop {
             lendata.push(self.get_byte().await?);
@@ -108,14 +108,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
         while self.bytes_read < data_len {
             match self.reader.read(&mut self.data[self.bytes_read ..]).timeout(futures_time::time::Duration::from_secs(5)).await {
                 Ok(res) => self.bytes_read += res?,
-                Err(err) => return Ok(
-                    RpcFrame {
-                        protocol: Protocol::ChainPack,
-                        meta,
-                        data: RpcError::new(crate::rpcmessage::RpcErrorCode::MethodCallTimeout, err.to_string())
-                            .to_rpcvalue()
-                            .to_chainpack(),
-                    })
+                Err(err) => return Err(err.into()),
             }
         }
         Ok(RpcFrame {
