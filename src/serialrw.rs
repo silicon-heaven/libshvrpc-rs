@@ -31,6 +31,7 @@ pub struct SerialFrameReader<R: AsyncRead + Unpin + Send> {
     reader: R,
     with_crc: bool,
     has_stx: bool,
+    meta_len: usize,
     meta: Option<MetaMap>,
     data: Vec<u8>,
 }
@@ -40,6 +41,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             reader,
             with_crc: false,
             has_stx: false,
+            meta_len: 0,
             meta: None,
             data: Vec::new(),
         }
@@ -136,6 +138,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
                     let mut buffrd = BufReader::new(&self.data[1 ..]);
                     let mut rd = ChainPackReader::new(&mut buffrd);
                     if let Ok(Some(meta)) = rd.try_read_meta() {
+                        self.meta_len = rd.position() + 1;
                         self.meta = Some(meta.clone());
                         log!(target: "RpcMsg", Level::Debug, "R(meta)==> {}", &meta);
                         return Ok(meta);
@@ -215,7 +218,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
         Ok(RpcFrame {
             protocol: Protocol::ChainPack,
             meta,
-            data: std::mem::take(&mut self.data),
+            data: self.data.drain(self.meta_len..).collect(),
         })
     }
 
