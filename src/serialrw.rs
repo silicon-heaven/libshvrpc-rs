@@ -218,76 +218,76 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
         })
     }
 
-    async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
-        let mut has_stx = false;
-        'read_frame: loop {
-            if !has_stx {
-                loop {
-                    match self.get_escaped_byte().await? {
-                        Byte::Stx => { break }
-                        _ => { continue }
-                    }
-                }
-            }
-            has_stx = false;
-            let mut data: Vec<u8> = vec![];
-            loop {
-                match self.get_escaped_byte().await? {
-                    Byte::Stx => {
-                        has_stx = true;
-                        continue 'read_frame
-                    }
-                    Byte::Data(b) => { data.push(b) }
-                    Byte::Etx => { break }
-                    _ => { continue 'read_frame }
-                }
-            }
-            if self.with_crc {
-                let mut crc_data = [0u8; 4];
-                for crc_b in &mut crc_data {
-                    match self.get_escaped_byte().await? {
-                        Byte::Stx => {
-                            has_stx = true;
-                            continue 'read_frame
-                        }
-                        Byte::Data(b) => { *crc_b = b }
-                        _ => { continue 'read_frame }
-                    }
-                }
-                fn as_u32_be(array: &[u8; 4]) -> u32 {
-                    ((array[0] as u32) << 24) +
-                        ((array[1] as u32) << 16) +
-                        ((array[2] as u32) <<  8) +
-                        (array[3] as u32)
-                }
-                let crc1 = as_u32_be(&crc_data);
-                let gen = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
-                let crc2 = gen.checksum(&data);
-                //println!("CRC2 {crc2}");
-                if crc1 != crc2 {
-                    log!(target: "Serial", Level::Debug, "CRC error");
-                    continue 'read_frame
-                }
-            }
-            let protocol = data[0];
-            if protocol != Protocol::ChainPack as u8 {
-                log!(target: "Serial", Level::Debug, "Not chainpack message");
-                continue 'read_frame
-            }
-            let mut buffrd = BufReader::new(&data[1 ..]);
-            let mut rd = ChainPackReader::new(&mut buffrd);
-            if let Ok(Some(meta)) = rd.try_read_meta() {
-                let pos = rd.position() + 1;
-                let data: Vec<_> = data.drain(pos .. ).collect();
-                let frame  = RpcFrame { protocol: Protocol::ChainPack, meta, data };
-                log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
-                return Ok(frame)
-            } else {
-                log!(target: "Serial", Level::Debug, "Meta data read error");
-                continue 'read_frame
-            }
-        }
-    }
+    // async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
+    //     let mut has_stx = false;
+    //     'read_frame: loop {
+    //         if !has_stx {
+    //             loop {
+    //                 match self.get_escaped_byte().await? {
+    //                     Byte::Stx => { break }
+    //                     _ => { continue }
+    //                 }
+    //             }
+    //         }
+    //         has_stx = false;
+    //         let mut data: Vec<u8> = vec![];
+    //         loop {
+    //             match self.get_escaped_byte().await? {
+    //                 Byte::Stx => {
+    //                     has_stx = true;
+    //                     continue 'read_frame
+    //                 }
+    //                 Byte::Data(b) => { data.push(b) }
+    //                 Byte::Etx => { break }
+    //                 _ => { continue 'read_frame }
+    //             }
+    //         }
+    //         if self.with_crc {
+    //             let mut crc_data = [0u8; 4];
+    //             for crc_b in &mut crc_data {
+    //                 match self.get_escaped_byte().await? {
+    //                     Byte::Stx => {
+    //                         has_stx = true;
+    //                         continue 'read_frame
+    //                     }
+    //                     Byte::Data(b) => { *crc_b = b }
+    //                     _ => { continue 'read_frame }
+    //                 }
+    //             }
+    //             fn as_u32_be(array: &[u8; 4]) -> u32 {
+    //                 ((array[0] as u32) << 24) +
+    //                     ((array[1] as u32) << 16) +
+    //                     ((array[2] as u32) <<  8) +
+    //                     (array[3] as u32)
+    //             }
+    //             let crc1 = as_u32_be(&crc_data);
+    //             let gen = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
+    //             let crc2 = gen.checksum(&data);
+    //             //println!("CRC2 {crc2}");
+    //             if crc1 != crc2 {
+    //                 log!(target: "Serial", Level::Debug, "CRC error");
+    //                 continue 'read_frame
+    //             }
+    //         }
+    //         let protocol = data[0];
+    //         if protocol != Protocol::ChainPack as u8 {
+    //             log!(target: "Serial", Level::Debug, "Not chainpack message");
+    //             continue 'read_frame
+    //         }
+    //         let mut buffrd = BufReader::new(&data[1 ..]);
+    //         let mut rd = ChainPackReader::new(&mut buffrd);
+    //         if let Ok(Some(meta)) = rd.try_read_meta() {
+    //             let pos = rd.position() + 1;
+    //             let data: Vec<_> = data.drain(pos .. ).collect();
+    //             let frame  = RpcFrame { protocol: Protocol::ChainPack, meta, data };
+    //             log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
+    //             return Ok(frame)
+    //         } else {
+    //             log!(target: "Serial", Level::Debug, "Meta data read error");
+    //             continue 'read_frame
+    //         }
+    //     }
+    // }
 }
 
 pub struct SerialFrameWriter<W: AsyncWrite + Unpin + Send> {

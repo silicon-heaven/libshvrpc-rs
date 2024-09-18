@@ -14,7 +14,13 @@ pub trait FrameReader {
     async fn receive_frame_meta_data(&mut self) -> crate::Result<RpcFrameReception>;
     async fn receive_frame_meta(&mut self) -> crate::Result<MetaMap>;
     async fn receive_frame_data(&mut self) -> crate::Result<RpcFrame>;
-    async fn receive_frame(&mut self) -> crate::Result<RpcFrame>;
+    async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
+        loop {
+            if let RpcFrameReception::Frame(frame) = self.receive_frame_meta_data().await? {
+                return Ok(frame);
+            }
+        }
+    }
 
     async fn receive_message(&mut self) -> crate::Result<RpcMessage> {
         let frame = self.receive_frame().await?;

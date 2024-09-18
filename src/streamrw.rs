@@ -118,48 +118,47 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
         })
     }
 
-    // TODO: replace with receive_frame_meta_data
-    async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
-        let mut lendata: Vec<u8> = vec![];
-        let frame_len = loop {
-            lendata.push(self.get_byte().await?);
-            //let mut cursor = Cursor::new(&lendata);
-            let mut buffrd = BufReader::new(&lendata[..]);
-
-            let mut rd = ChainPackReader::new(&mut buffrd);
-            match rd.read_uint_data() {
-                Ok(len) => { break len as usize }
-                Err(err) => {
-                    let msg = err.to_string();
-                    let ReadError{reason, .. } = err;
-                    match reason {
-                        ReadErrorReason::UnexpectedEndOfStream => { continue }
-                        ReadErrorReason::InvalidCharacter => { return Err(msg.into()) }
-                    }
-                }
-            };
-        };
-        // log!(target: "RpcData", Level::Debug, "Frame length {}", frame_len);
-        // log!(target: "RpcData", Level::Debug, "Frame length data\n{}", hex_dump(&lendata));
-        let mut data: Vec<u8> = vec![0u8; frame_len];
-        self.reader.read_exact(&mut data).await?;
-
-        // log!(target: "RpcData", Level::Debug, "Data\n{}", hex_dump(&data));
-        let protocol = data[0];
-        if protocol != Protocol::ChainPack as u8 {
-            return Err("Not chainpack message".into());
-        }
-        let mut buffrd = BufReader::new(&data[1..]);
-        let mut rd = ChainPackReader::new(&mut buffrd);
-        if let Ok(Some(meta)) = rd.try_read_meta() {
-            let pos = rd.position() + 1;
-            let data: Vec<_> = data.drain(pos .. ).collect();
-            let frame = RpcFrame { protocol: Protocol::ChainPack, meta, data };
-            log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
-            return Ok(frame);
-        }
-        return Err("Meta data read error".into());
-    }
+    // async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
+    //     let mut lendata: Vec<u8> = vec![];
+    //     let frame_len = loop {
+    //         lendata.push(self.get_byte().await?);
+    //         //let mut cursor = Cursor::new(&lendata);
+    //         let mut buffrd = BufReader::new(&lendata[..]);
+    //
+    //         let mut rd = ChainPackReader::new(&mut buffrd);
+    //         match rd.read_uint_data() {
+    //             Ok(len) => { break len as usize }
+    //             Err(err) => {
+    //                 let msg = err.to_string();
+    //                 let ReadError{reason, .. } = err;
+    //                 match reason {
+    //                     ReadErrorReason::UnexpectedEndOfStream => { continue }
+    //                     ReadErrorReason::InvalidCharacter => { return Err(msg.into()) }
+    //                 }
+    //             }
+    //         };
+    //     };
+    //     // log!(target: "RpcData", Level::Debug, "Frame length {}", frame_len);
+    //     // log!(target: "RpcData", Level::Debug, "Frame length data\n{}", hex_dump(&lendata));
+    //     let mut data: Vec<u8> = vec![0u8; frame_len];
+    //     self.reader.read_exact(&mut data).await?;
+    //
+    //     // log!(target: "RpcData", Level::Debug, "Data\n{}", hex_dump(&data));
+    //     let protocol = data[0];
+    //     if protocol != Protocol::ChainPack as u8 {
+    //         return Err("Not chainpack message".into());
+    //     }
+    //     let mut buffrd = BufReader::new(&data[1..]);
+    //     let mut rd = ChainPackReader::new(&mut buffrd);
+    //     if let Ok(Some(meta)) = rd.try_read_meta() {
+    //         let pos = rd.position() + 1;
+    //         let data: Vec<_> = data.drain(pos .. ).collect();
+    //         let frame = RpcFrame { protocol: Protocol::ChainPack, meta, data };
+    //         log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
+    //         return Ok(frame);
+    //     }
+    //     return Err("Meta data read error".into());
+    // }
 }
 
 pub fn read_frame(buff: &[u8]) -> crate::Result<RpcFrame> {
