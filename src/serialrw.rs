@@ -32,6 +32,7 @@ pub struct SerialFrameReader<R: AsyncRead + Unpin + Send> {
     with_crc: bool,
     has_stx: bool,
     meta: Option<MetaMap>,
+    data: Vec<u8>,
 }
 impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     pub fn new(reader: R) -> Self {
@@ -40,6 +41,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             with_crc: false,
             has_stx: false,
             meta: None,
+            data: Vec::new(),
         }
     }
     pub fn with_crc_check(mut self, on: bool) -> Self {
@@ -114,24 +116,24 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
                 }
             }
             self.has_stx = false;
-            let mut data: Vec<u8> = vec![];
+            self.data = vec![];
             loop {
                 match self.get_escaped_byte().await? {
                     Byte::Stx => {
                         self.has_stx = true;
                         continue 'read_frame
                     }
-                    Byte::Data(b) => data.push(b),
+                    Byte::Data(b) => self.data.push(b),
                     Byte::Etx => break,
                     _ => continue 'read_frame,
                 }
-                if data.len() > 1 {
-                    let protocol = data[0];
+                if self.data.len() > 1 {
+                    let protocol = self.data[0];
                     if protocol != Protocol::ChainPack as u8 {
                         log!(target: "Serial", Level::Debug, "Not chainpack message");
                         continue 'read_frame
                     }
-                    let mut buffrd = BufReader::new(&data[1 ..]);
+                    let mut buffrd = BufReader::new(&self.data[1 ..]);
                     let mut rd = ChainPackReader::new(&mut buffrd);
                     if let Ok(Some(meta)) = rd.try_read_meta() {
                         self.meta = Some(meta.clone());
@@ -152,11 +154,10 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
         // Make sure that self.meta is invalidated in case this call
         // fails, so subsequent reads will start from a new meta.
         let meta = std::mem::take(meta);
-        let mut data: Vec<u8> = vec![];
         loop {
             match self.get_escaped_byte().timeout(futures_time::time::Duration::from_secs(5)).await {
                 Ok(res) => match res? {
-                    Byte::Data(b) => data.push(b),
+                    Byte::Data(b) => self.data.push(b),
                     Byte::Etx => break,
                     Byte::Stx => {
                         self.has_stx = true;
@@ -204,7 +205,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
             }
             let crc1 = as_u32_be(&crc_data);
             let gen = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
-            let crc2 = gen.checksum(&data);
+            let crc2 = gen.checksum(&self.data);
             //println!("CRC2 {crc2}");
             if crc1 != crc2 {
                 log!(target: "Serial", Level::Debug, "CRC error");
@@ -214,7 +215,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
         Ok(RpcFrame {
             protocol: Protocol::ChainPack,
             meta,
-            data,
+            data: std::mem::take(&mut self.data),
         })
     }
 
