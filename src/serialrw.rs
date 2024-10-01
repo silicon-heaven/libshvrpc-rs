@@ -1,16 +1,11 @@
-use crate::framerw::{read_bytes, RawData};
-use crate::framerw::{
-    serialize_meta, FrameReader, FrameWriter, ReceiveFrameError, RpcFrameReception,
-};
+use crate::framerw::{read_bytes, FrameData, RawData};
+use crate::framerw::{serialize_meta, FrameReader, FrameWriter, ReceiveFrameError};
 use crate::rpcframe::{Protocol, RpcFrame};
-use crate::RpcMessageMetaTags;
 use async_trait::async_trait;
 use crc::{Crc, CRC_32_ISO_HDLC};
-use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use log::*;
-use shvproto::{ChainPackReader, MetaMap, Reader};
-use std::io::BufReader;
-use std::mem::take;
+use std::mem::{replace};
 
 const STX: u8 = 0xA2;
 const ETX: u8 = 0xA3;
@@ -27,7 +22,7 @@ pub enum EscapedByte {
     Etx,
     // Atx,
 }
-fn is_escaped_byte_available(raw_data: &RawData) -> bool {
+fn is_byte_available(raw_data: &RawData) -> bool {
     if raw_data.raw_bytes_available() == 0 {
         false
     } else if raw_data.raw_bytes_available() == 1 {
@@ -40,13 +35,9 @@ fn is_escaped_byte_available(raw_data: &RawData) -> bool {
 pub struct SerialFrameReader<R: AsyncRead + Unpin + Send> {
     reader: R,
     with_crc: bool,
-
-    has_stx: bool,
-    has_etx: bool,
-    meta: Option<MetaMap>,
-    data: Vec<u8>,
     crc: crc::Digest<'static, u32>,
-
+    has_stx: bool,
+    frame_data: FrameData,
     raw_data: RawData,
 }
 const CRC_32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
@@ -56,23 +47,28 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         Self {
             reader,
             with_crc: false,
-            has_stx: false,
-            has_etx: false,
-            meta: None,
-            data: vec![],
             crc: CRC_32.digest(),
+            has_stx: false,
+            frame_data: FrameData {
+                complete: false,
+                meta: None,
+                data: vec![],
+            },
             raw_data: RawData {
                 data: vec![],
                 consumed: 0,
             },
         }
     }
-    fn reset_frame(&mut self, has_stx: bool) {
-        self.has_stx = has_stx;
-        self.has_etx = false;
-        self.data = vec![];
-        self.meta = None;
+    fn reset_frame(&mut self) {
+        self.frame_data = FrameData {
+            complete: false,
+            meta: None,
+            data: vec![],
+        };
+        self.has_stx = false;
         self.crc = CRC_32.digest();
+        self.raw_data.trim();
     }
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
@@ -83,113 +79,64 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             read_bytes(&mut self.reader, &mut self.raw_data.data).await?;
         }
         let b = self.raw_data.data[self.raw_data.consumed];
-        if self.has_stx && !self.has_etx {
+        if self.has_stx && !self.frame_data.complete {
             self.crc.update(&[b]);
         }
         self.raw_data.consumed += 1;
         Ok(b)
     }
-    async fn get_escaped_byte(&mut self) -> Result<EscapedByte, ReceiveFrameError> {
-        //if self.data.len() == self.data_consumed || (self.data.len() == self.data_consumed - 1 && self.data[self.data.len() - 1] == ESC) {
-        //    self.read_bytes().await?;
-        //}
-        let b = match self.get_raw_byte().await? {
-            STX => EscapedByte::Stx,
-            ETX => EscapedByte::Etx,
-            ATX => return Err(ReceiveFrameError::FrameError),
-            ESC => match self.get_raw_byte().await? {
-                ESTX => EscapedByte::Data(STX),
-                EETX => EscapedByte::Data(ETX),
-                EATX => EscapedByte::Data(ATX),
-                EESC => EscapedByte::Data(ESC),
-                b => {
-                    warn!("Framing error, invalid escape byte {}", b);
-                    return Err(ReceiveFrameError::FrameError);
-                }
-            },
-            b => EscapedByte::Data(b),
+    fn unget_raw_byte(&mut self) {
+        assert!(!self.raw_data.data.is_empty());
+        self.raw_data.consumed -= 1;
+    }
+    fn unescape_byte(b: u8) -> Result<u8, ReceiveFrameError> {
+        let b = match b {
+            ESTX => STX,
+            EETX => ETX,
+            EATX => ATX,
+            EESC => ESC,
+            b => {
+                warn!("Framing error, invalid escape byte {}", b);
+                return Err(ReceiveFrameError::FrameError);
+            }
         };
         Ok(b)
     }
-    #[cfg(all(test, feature = "async-std"))]
-    async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
-        let mut data: Vec<u8> = Default::default();
-        while let Ok(b) = self.get_escaped_byte().await {
-            match b {
-                EscapedByte::Data(b) => data.push(b),
-                EscapedByte::Stx => data.push(STX),
-                EscapedByte::Etx => data.push(ETX), // Byte::Atx => { data.push( ATX ) }
+    async fn get_frame_data_byte(&mut self) -> Result<(), ReceiveFrameError> {
+        if !self.has_stx {
+            loop {
+                if self.get_raw_byte().await? == STX {
+                    self.reset_frame();
+                    break;
+                }
             }
         }
-        Ok(data)
-    }
-}
-#[async_trait]
-impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
-    async fn try_receive_frame(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
-        let make_error = |err: ReceiveFrameError| {
-            self.reset_frame(false);
-            Err(err)
-        };
-        'read_frame: loop {
-            if !self.has_etx {
-                match self.get_escaped_byte().await? {
-                    EscapedByte::Stx => {
-                        self.reset_frame(true);
-                        continue 'read_frame;
-                    }
-                    EscapedByte::Data(b) => {
-                        if self.has_stx {
-                            self.data.push(b);
-                        }
-                    }
-                    EscapedByte::Etx => {
-                        self.has_etx = true;
-                    }
-                }
-            };
-            if self.meta.is_none() && (self.has_etx || !is_escaped_byte_available(&self.raw_data)) {
-                let proto = self.data[0];
-                if proto == Protocol::ResetSession as u8 {
-                    return make_error(ReceiveFrameError::StreamError);
-                }
-                if proto != Protocol::ChainPack as u8 {
-                    return make_error(ReceiveFrameError::FrameError);
-                }
-                let mut buffrd = BufReader::new(&self.data[1..]);
-                let mut rd = ChainPackReader::new(&mut buffrd);
-                if let Ok(Some(meta)) = rd.try_read_meta() {
-                    let pos = rd.position() + 1;
-                    self.data.drain(..pos);
-                    let resp_id = if meta.is_response() {
-                        meta.request_id()
-                    } else {
-                        None
-                    };
-                    self.meta = Some(meta);
-                    if let Some(rqid) = resp_id {
-                        return Ok(RpcFrameReception::ResponseId(rqid));
-                    }
-                } else {
-                    log!(target: "Serial", Level::Debug, "Meta data read error");
-                    return make_error(ReceiveFrameError::FrameError);
-                }
+        match self.get_raw_byte().await? {
+            STX => {
+                self.unget_raw_byte();
+                return Err(ReceiveFrameError::FrameError);
             }
-            if self.has_etx {
+            ETX => {
                 if self.with_crc {
                     let mut crc_data = [0u8; 4];
                     for crc_b in &mut crc_data {
-                        match self.get_escaped_byte().await? {
-                            EscapedByte::Stx => {
-                                self.reset_frame(true);
-                                continue 'read_frame;
+                        let b = match self.get_raw_byte().await? {
+                            STX => {
+                                self.unget_raw_byte();
+                                return Err(ReceiveFrameError::FrameError);
                             }
-                            EscapedByte::Data(b) => *crc_b = b,
-                            _ => {
-                                self.reset_frame(false);
-                                continue 'read_frame
+                            ESC => {
+                                Self::unescape_byte(self.get_raw_byte().await?)?
                             }
-                        }
+                            ATX => {
+                                return Err(ReceiveFrameError::FrameError);
+                            }
+                            ETX => {
+                                return Err(ReceiveFrameError::FrameError);
+                            }
+                            b => b,
+                        };
+                        *crc_b = b;
                     }
                     fn as_u32_be(array: &[u8; 4]) -> u32 {
                         ((array[0] as u32) << 24)
@@ -198,23 +145,53 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
                             + (array[3] as u32)
                     }
                     let crc1 = as_u32_be(&crc_data);
-                    let crc2 = self.crc.finalize();
+                    let digest = replace(&mut self.crc, CRC_32.digest());
+                    let crc2 = digest.finalize();
                     //println!("CRC2 {crc2}");
                     if crc1 != crc2 {
                         log!(target: "Serial", Level::Debug, "CRC error");
-                        return make_error(ReceiveFrameError::FrameError)
+                        return Err(ReceiveFrameError::FrameError)
                     }
                 }
-                assert!(self.meta.is_some());
-                let frame = RpcFrame {
-                    protocol: Protocol::ChainPack,
-                    meta: take(&mut self.meta).unwrap(),
-                    data: take(&mut self.data),
-                };
-                log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
-                return Ok(RpcFrameReception::Frame(frame))
+                self.frame_data.complete = true;
+                return Ok(())
             }
+            ATX => return Err(ReceiveFrameError::FrameError),
+            ESC => {
+                let ub = Self::unescape_byte(self.get_raw_byte().await?)?;
+                self.frame_data.data.push(ub)
+            },
+            b => self.frame_data.data.push(b),
+        };
+        Ok(())
+    }
+    #[cfg(all(test, feature = "async-std"))]
+    async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
+        let mut data: Vec<u8> = Default::default();
+        while let Ok(b) = self.get_raw_byte().await {
+            let b = match b {
+                ESC => Self::unescape_byte(self.get_raw_byte().await?)?,
+                b => b,
+            };
+            data.push(b);
         }
+        Ok(data)
+    }
+}
+#[async_trait]
+impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
+    async fn get_byte(&mut self) -> Result<(), ReceiveFrameError> {
+        self.get_frame_data_byte().await
+    }
+    fn can_read_meta(&self) -> bool {
+        self.frame_data.complete || !is_byte_available(&self.raw_data)
+    }
+    fn frame_data_ref_mut(&mut self) -> &mut FrameData {
+        &mut self.frame_data
+    }
+
+    fn reset_frame_data(&mut self) {
+        self.reset_frame()
     }
 }
 

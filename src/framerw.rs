@@ -1,8 +1,10 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::io::BufReader;
+use std::mem::take;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncReadExt};
+use log::{log, Level};
 use crate::rpcframe::{Protocol, RpcFrame};
-use shvproto::{ChainPackWriter, MetaMap, RpcValue, Writer};
+use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{RpcError, RpcErrorCode, RqId};
 pub enum RpcFrameReception {
@@ -34,13 +36,74 @@ impl RawData {
         assert!(self.data.len() >= self.consumed);
         self.data.len() - self.consumed
     }
+    pub(crate) fn trim(&mut self) {
+        self.data.drain( .. self.consumed);
+        self.consumed = 0;
+    }
+}
+pub struct FrameData {
+    pub(crate) complete: bool,
+    pub(crate) meta: Option<MetaMap>,
+    pub(crate) data: Vec<u8>,
 }
 #[async_trait]
 pub trait FrameReader {
-    async fn try_receive_frame(&mut self) -> Result<RpcFrameReception, ReceiveFrameError>;
+    async fn get_byte(&mut self) -> Result<(), ReceiveFrameError>;
+    fn can_read_meta(&self) -> bool;
+    fn frame_data_ref_mut(&mut self) -> &mut FrameData;
+    fn reset_frame_data(&mut self);
+    async fn receive_frame_or_request_id(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
+        let ret = self.__receive_frame_or_request_id().await;
+        self.reset_frame_data();
+        ret
+    }
+    async fn __receive_frame_or_request_id(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
+        loop {
+            self.get_byte().await?;
+            if self.frame_data_ref_mut().meta.is_none() && self.can_read_meta() {
+                let proto = self.frame_data_ref_mut().data[0];
+                if proto == Protocol::ResetSession as u8 {
+                    return Err(ReceiveFrameError::StreamError);
+                }
+                if proto != Protocol::ChainPack as u8 {
+                    return Err(ReceiveFrameError::FrameError);
+                }
+                let mut buffrd = BufReader::new(&self.frame_data_ref_mut().data[1..]);
+                let mut rd = ChainPackReader::new(&mut buffrd);
+                if let Ok(Some(meta)) = rd.try_read_meta() {
+                    let pos = rd.position() + 1;
+                    self.frame_data_ref_mut().data.drain(..pos);
+                    let resp_id = if meta.is_response() {
+                        meta.request_id()
+                    } else {
+                        None
+                    };
+                    self.frame_data_ref_mut().meta = Some(meta);
+                    if let Some(rqid) = resp_id {
+                        return Ok(RpcFrameReception::ResponseId(rqid));
+                    }
+                } else {
+                    log!(target: "Serial", Level::Debug, "Meta data read error");
+                    return Err(ReceiveFrameError::FrameError);
+                }
+            }
+            if self.frame_data_ref_mut().complete {
+                assert!(self.frame_data_ref_mut().meta.is_some());
+                let frame = RpcFrame {
+                    protocol: Protocol::ChainPack,
+                    meta: take(&mut self.frame_data_ref_mut().meta).unwrap(),
+                    data: take(&mut self.frame_data_ref_mut().data),
+                };
+                self.reset_frame_data();
+                log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
+                return Ok(RpcFrameReception::Frame(frame))
+            }
+        }
+    }
+
     async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
         loop {
-            if let RpcFrameReception::Frame(frame) = self.try_receive_frame().await? {
+            if let RpcFrameReception::Frame(frame) = self.receive_frame_or_request_id().await? {
                 return Ok(frame);
             }
         }
