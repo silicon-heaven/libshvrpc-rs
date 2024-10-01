@@ -1,11 +1,50 @@
+use std::fmt::{Debug, Display, Formatter};
 use async_trait::async_trait;
+use futures::{AsyncRead, AsyncReadExt};
 use crate::rpcframe::{Protocol, RpcFrame};
 use shvproto::{ChainPackWriter, MetaMap, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{RpcError, RpcErrorCode, RqId};
+pub enum RpcFrameReception {
+    ResponseId(RqId),
+    Frame(RpcFrame),
+}
+pub enum ReceiveFrameError {
+    Timeout,
+    FrameError,
+    StreamError,
+}
+
+impl From<ReceiveFrameError> for crate::Error {
+    fn from(value: ReceiveFrameError) -> Self {
+        let msg = match value {
+            ReceiveFrameError::Timeout => { "Timeout" }
+            ReceiveFrameError::FrameError => { "FrameError" }
+            ReceiveFrameError::StreamError => { "StreamError" }
+        };
+        msg.into()
+    }
+}
+pub(crate) struct RawData {
+    pub(crate) data: Vec<u8>,
+    pub(crate) consumed: usize,
+}
+impl RawData {
+    pub(crate) fn raw_bytes_available(&self) -> usize {
+        assert!(self.data.len() >= self.consumed);
+        self.data.len() - self.consumed
+    }
+}
 #[async_trait]
 pub trait FrameReader {
-    async fn receive_frame(&mut self) -> crate::Result<RpcFrame>;
+    async fn try_receive_frame(&mut self) -> Result<RpcFrameReception, ReceiveFrameError>;
+    async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
+        loop {
+            if let RpcFrameReception::Frame(frame) = self.try_receive_frame().await? {
+                return Ok(frame);
+            }
+        }
+    }
 
     async fn receive_message(&mut self) -> crate::Result<RpcMessage> {
         let frame = self.receive_frame().await?;
@@ -13,7 +52,19 @@ pub trait FrameReader {
         Ok(msg)
     }
 }
-
+pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data: &mut Vec<u8>) -> Result<(), ReceiveFrameError> {
+    const BUFF_LEN: usize = 1024 * 4;
+    let mut buff = [0; BUFF_LEN];
+    let Ok(n) = reader.read(&mut buff).await else {
+        return Err(ReceiveFrameError::StreamError);
+    };
+    if n == 0 {
+        Err(ReceiveFrameError::StreamError)
+    } else {
+        data.extend_from_slice(&buff[..n]);
+        Ok(())
+    }
+}
 #[async_trait]
 pub trait FrameWriter {
     async fn send_reset_session(&mut self) -> crate::Result<()> {

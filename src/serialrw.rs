@@ -1,11 +1,16 @@
-use std::io::{BufReader};
-use async_trait::async_trait;
-use crc::CRC_32_ISO_HDLC;
+use crate::framerw::{read_bytes, RawData};
+use crate::framerw::{
+    serialize_meta, FrameReader, FrameWriter, ReceiveFrameError, RpcFrameReception,
+};
 use crate::rpcframe::{Protocol, RpcFrame};
+use crate::RpcMessageMetaTags;
+use async_trait::async_trait;
+use crc::{Crc, CRC_32_ISO_HDLC};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use log::*;
-use shvproto::{ChainPackReader, Reader};
-use crate::framerw::{FrameReader, FrameWriter, serialize_meta};
+use shvproto::{ChainPackReader, MetaMap, Reader};
+use std::io::BufReader;
+use std::mem::take;
 
 const STX: u8 = 0xA2;
 const ETX: u8 = 0xA3;
@@ -16,67 +21,104 @@ const ESTX: u8 = 0x02;
 const EETX: u8 = 0x03;
 const EATX: u8 = 0x04;
 const EESC: u8 = 0x0A;
-pub enum Byte {
+pub enum EscapedByte {
     Data(u8),
     Stx,
     Etx,
-    Atx,
-    FramingError(u8),
+    // Atx,
 }
+fn is_escaped_byte_available(raw_data: &RawData) -> bool {
+    if raw_data.raw_bytes_available() == 0 {
+        false
+    } else if raw_data.raw_bytes_available() == 1 {
+        raw_data.data[raw_data.consumed] != crate::serialrw::ESC
+    } else {
+        true
+    }
+}
+
 pub struct SerialFrameReader<R: AsyncRead + Unpin + Send> {
     reader: R,
     with_crc: bool,
+
+    has_stx: bool,
+    has_etx: bool,
+    meta: Option<MetaMap>,
+    data: Vec<u8>,
+    crc: crc::Digest<'static, u32>,
+
+    raw_data: RawData,
 }
+const CRC_32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
+
 impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
             reader,
             with_crc: false,
+            has_stx: false,
+            has_etx: false,
+            meta: None,
+            data: vec![],
+            crc: CRC_32.digest(),
+            raw_data: RawData {
+                data: vec![],
+                consumed: 0,
+            },
         }
+    }
+    fn reset_frame(&mut self, has_stx: bool) {
+        self.has_stx = has_stx;
+        self.has_etx = false;
+        self.data = vec![];
+        self.meta = None;
+        self.crc = CRC_32.digest();
     }
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
         self
     }
-    async fn get_byte(&mut self) -> crate::Result<u8> {
-        let mut buff = [0u8; 1];
-        let n = self.reader.read(&mut buff[..]).await?;
-        if n == 0 {
-            Err("End of stream".into())
-        } else {
-            Ok(buff[0])
+    async fn get_raw_byte(&mut self) -> Result<u8, ReceiveFrameError> {
+        if self.raw_data.raw_bytes_available() == 0 {
+            read_bytes(&mut self.reader, &mut self.raw_data.data).await?;
         }
+        let b = self.raw_data.data[self.raw_data.consumed];
+        if self.has_stx && !self.has_etx {
+            self.crc.update(&[b]);
+        }
+        self.raw_data.consumed += 1;
+        Ok(b)
     }
-    async fn get_escaped_byte(&mut self) -> crate::Result<crate::serialrw::Byte> {
-        match self.get_byte().await? {
-            STX => Ok(crate::serialrw::Byte::Stx),
-            ETX => Ok(crate::serialrw::Byte::Etx),
-            ATX => Ok(crate::serialrw::Byte::Atx),
-            ESC => {
-                match self.get_byte().await? {
-                    ESTX => Ok(crate::serialrw::Byte::Data(STX)),
-                    EETX => Ok(crate::serialrw::Byte::Data(ETX)),
-                    EATX => Ok(crate::serialrw::Byte::Data(ATX)),
-                    EESC => Ok(crate::serialrw::Byte::Data(ESC)),
-                    b => {
-                        warn!("Framing error, invalid escape byte {}", b);
-                        Ok(crate::serialrw::Byte::FramingError(b))
-                    }
+    async fn get_escaped_byte(&mut self) -> Result<EscapedByte, ReceiveFrameError> {
+        //if self.data.len() == self.data_consumed || (self.data.len() == self.data_consumed - 1 && self.data[self.data.len() - 1] == ESC) {
+        //    self.read_bytes().await?;
+        //}
+        let b = match self.get_raw_byte().await? {
+            STX => EscapedByte::Stx,
+            ETX => EscapedByte::Etx,
+            ATX => return Err(ReceiveFrameError::FrameError),
+            ESC => match self.get_raw_byte().await? {
+                ESTX => EscapedByte::Data(STX),
+                EETX => EscapedByte::Data(ETX),
+                EATX => EscapedByte::Data(ATX),
+                EESC => EscapedByte::Data(ESC),
+                b => {
+                    warn!("Framing error, invalid escape byte {}", b);
+                    return Err(ReceiveFrameError::FrameError);
                 }
-            }
-            b => Ok(crate::serialrw::Byte::Data(b))
-        }
+            },
+            b => EscapedByte::Data(b),
+        };
+        Ok(b)
     }
     #[cfg(all(test, feature = "async-std"))]
     async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
         let mut data: Vec<u8> = Default::default();
         while let Ok(b) = self.get_escaped_byte().await {
             match b {
-                Byte::Data(b) => { data.push(b) }
-                Byte::Stx => { data.push( STX) }
-                Byte::Etx => { data.push( ETX ) }
-                Byte::Atx => { data.push( ATX ) }
-                Byte::FramingError(b) => { return Err(format!("Framing error, invalid character {b}").into()) }
+                EscapedByte::Data(b) => data.push(b),
+                EscapedByte::Stx => data.push(STX),
+                EscapedByte::Etx => data.push(ETX), // Byte::Atx => { data.push( ATX ) }
             }
         }
         Ok(data)
@@ -84,73 +126,93 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
-    async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
-        let mut has_stx = false;
+    async fn try_receive_frame(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
+        let make_error = |err: ReceiveFrameError| {
+            self.reset_frame(false);
+            Err(err)
+        };
         'read_frame: loop {
-            if !has_stx {
-                loop {
-                    match self.get_escaped_byte().await? {
-                        Byte::Stx => { break }
-                        _ => { continue }
-                    }
-                }
-            }
-            has_stx = false;
-            let mut data: Vec<u8> = vec![];
-            loop {
+            if !self.has_etx {
                 match self.get_escaped_byte().await? {
-                    Byte::Stx => {
-                        has_stx = true;
-                        continue 'read_frame
+                    EscapedByte::Stx => {
+                        self.reset_frame(true);
+                        continue 'read_frame;
                     }
-                    Byte::Data(b) => { data.push(b) }
-                    Byte::Etx => { break }
-                    _ => { continue 'read_frame }
-                }
-            }
-            if self.with_crc {
-                let mut crc_data = [0u8; 4];
-                for crc_b in &mut crc_data {
-                    match self.get_escaped_byte().await? {
-                        Byte::Stx => {
-                            has_stx = true;
-                            continue 'read_frame
+                    EscapedByte::Data(b) => {
+                        if self.has_stx {
+                            self.data.push(b);
                         }
-                        Byte::Data(b) => { *crc_b = b }
-                        _ => { continue 'read_frame }
+                    }
+                    EscapedByte::Etx => {
+                        self.has_etx = true;
                     }
                 }
-                fn as_u32_be(array: &[u8; 4]) -> u32 {
-                    ((array[0] as u32) << 24) +
-                        ((array[1] as u32) << 16) +
-                        ((array[2] as u32) <<  8) +
-                        (array[3] as u32)
+            };
+            if self.meta.is_none() && (self.has_etx || !is_escaped_byte_available(&self.raw_data)) {
+                let proto = self.data[0];
+                if proto == Protocol::ResetSession as u8 {
+                    return make_error(ReceiveFrameError::StreamError);
                 }
-                let crc1 = as_u32_be(&crc_data);
-                let gen = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
-                let crc2 = gen.checksum(&data);
-                //println!("CRC2 {crc2}");
-                if crc1 != crc2 {
-                    log!(target: "Serial", Level::Debug, "CRC error");
-                    continue 'read_frame
+                if proto != Protocol::ChainPack as u8 {
+                    return make_error(ReceiveFrameError::FrameError);
+                }
+                let mut buffrd = BufReader::new(&self.data[1..]);
+                let mut rd = ChainPackReader::new(&mut buffrd);
+                if let Ok(Some(meta)) = rd.try_read_meta() {
+                    let pos = rd.position() + 1;
+                    self.data.drain(..pos);
+                    let resp_id = if meta.is_response() {
+                        meta.request_id()
+                    } else {
+                        None
+                    };
+                    self.meta = Some(meta);
+                    if let Some(rqid) = resp_id {
+                        return Ok(RpcFrameReception::ResponseId(rqid));
+                    }
+                } else {
+                    log!(target: "Serial", Level::Debug, "Meta data read error");
+                    return make_error(ReceiveFrameError::FrameError);
                 }
             }
-            let protocol = data[0];
-            if protocol != Protocol::ChainPack as u8 {
-                log!(target: "Serial", Level::Debug, "Not chainpack message");
-                continue 'read_frame
-            }
-            let mut buffrd = BufReader::new(&data[1 ..]);
-            let mut rd = ChainPackReader::new(&mut buffrd);
-            if let Ok(Some(meta)) = rd.try_read_meta() {
-                let pos = rd.position() + 1;
-                let data: Vec<_> = data.drain(pos .. ).collect();
-                let frame  = RpcFrame { protocol: Protocol::ChainPack, meta, data };
+            if self.has_etx {
+                if self.with_crc {
+                    let mut crc_data = [0u8; 4];
+                    for crc_b in &mut crc_data {
+                        match self.get_escaped_byte().await? {
+                            EscapedByte::Stx => {
+                                self.reset_frame(true);
+                                continue 'read_frame;
+                            }
+                            EscapedByte::Data(b) => *crc_b = b,
+                            _ => {
+                                self.reset_frame(false);
+                                continue 'read_frame
+                            }
+                        }
+                    }
+                    fn as_u32_be(array: &[u8; 4]) -> u32 {
+                        ((array[0] as u32) << 24)
+                            + ((array[1] as u32) << 16)
+                            + ((array[2] as u32) << 8)
+                            + (array[3] as u32)
+                    }
+                    let crc1 = as_u32_be(&crc_data);
+                    let crc2 = self.crc.finalize();
+                    //println!("CRC2 {crc2}");
+                    if crc1 != crc2 {
+                        log!(target: "Serial", Level::Debug, "CRC error");
+                        return make_error(ReceiveFrameError::FrameError)
+                    }
+                }
+                assert!(self.meta.is_some());
+                let frame = RpcFrame {
+                    protocol: Protocol::ChainPack,
+                    meta: take(&mut self.meta).unwrap(),
+                    data: take(&mut self.data),
+                };
                 log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
-                return Ok(frame)
-            } else {
-                log!(target: "Serial", Level::Debug, "Meta data read error");
-                continue 'read_frame
+                return Ok(RpcFrameReception::Frame(frame))
             }
         }
     }
@@ -171,21 +233,29 @@ impl<W: AsyncWrite + Unpin + Send> SerialFrameWriter<W> {
         self.with_crc = on;
         self
     }
-    async fn write_bytes(&mut self, digest: &mut Option<crc::Digest<'_, u32>>, data: &[u8]) -> crate::Result<()> {
+    async fn write_bytes(
+        &mut self,
+        digest: &mut Option<crc::Digest<'_, u32>>,
+        data: &[u8],
+    ) -> crate::Result<()> {
         if let Some(ref mut digest) = digest {
             digest.update(data);
         }
         self.writer.write_all(data).await?;
         Ok(())
     }
-    async fn write_escaped(&mut self, digest: &mut Option<crc::Digest<'_, u32>>, data: &[u8]) -> crate::Result<()> {
+    async fn write_escaped(
+        &mut self,
+        digest: &mut Option<crc::Digest<'_, u32>>,
+        data: &[u8],
+    ) -> crate::Result<()> {
         for b in data {
             match *b {
-                STX => { self.write_bytes(digest, &[ESC, ESTX]).await? }
-                ETX => { self.write_bytes(digest, &[ESC, EETX]).await? }
-                ATX => { self.write_bytes(digest, &[ESC, EATX]).await? }
-                ESC => { self.write_bytes(digest, &[ESC, EESC]).await? }
-                b => { self.write_bytes(digest, &[b]).await? }
+                STX => self.write_bytes(digest, &[ESC, ESTX]).await?,
+                ETX => self.write_bytes(digest, &[ESC, EETX]).await?,
+                ATX => self.write_bytes(digest, &[ESC, EATX]).await?,
+                ESC => self.write_bytes(digest, &[ESC, EESC]).await?,
+                b => self.write_bytes(digest, &[b]).await?,
             };
         }
         Ok(())
@@ -209,11 +279,11 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
         self.write_escaped(&mut digest, &frame.data).await?;
         self.writer.write_all(&[ETX]).await?;
         if self.with_crc {
-            fn u32_to_bytes(x:u32) -> [u8;4] {
-                let b0 : u8 = ((x >> 24) & 0xff) as u8;
-                let b1 : u8 = ((x >> 16) & 0xff) as u8;
-                let b2 : u8 = ((x >> 8) & 0xff) as u8;
-                let b3 : u8 = (x & 0xff) as u8;
+            fn u32_to_bytes(x: u32) -> [u8; 4] {
+                let b0: u8 = ((x >> 24) & 0xff) as u8;
+                let b1: u8 = ((x >> 16) & 0xff) as u8;
+                let b2: u8 = ((x >> 8) & 0xff) as u8;
+                let b3: u8 = (x & 0xff) as u8;
                 [b0, b1, b2, b3]
             }
             let crc = digest.expect("digest should be some here").finalize();
@@ -231,10 +301,10 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
 
 #[cfg(all(test, feature = "async-std"))]
 mod test {
-    use async_std::io::BufWriter;
-    use crate::RpcMessage;
-    use crate::util::{hex_array, hex_dump};
     use super::*;
+    use crate::util::{hex_array, hex_dump};
+    use crate::RpcMessage;
+    use async_std::io::BufWriter;
     #[async_std::test]
     async fn test_write_bytes() {
         for (data, esc_data) in [
