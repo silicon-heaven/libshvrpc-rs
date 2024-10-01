@@ -1,11 +1,35 @@
+use std::future::Future;
 use async_trait::async_trait;
 use crate::rpcframe::{Protocol, RpcFrame};
 use shvproto::{ChainPackWriter, MetaMap, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{RpcError, RpcErrorCode, RqId};
+
+pub enum FrameOrResponseId {
+    ResponseId(RqId),
+    Frame(RpcFrame),
+}
+pub enum ReadFrameError {
+    Timeout,
+    FrameError,
+    StreamError,
+}
+pub(crate) struct SomeData {
+    pub(crate) data: Vec<u8>,
+    pub(crate) first: bool,
+    pub(crate) last: bool,
+}
 #[async_trait]
 pub trait FrameReader {
-    async fn receive_frame(&mut self) -> crate::Result<RpcFrame>;
+    async fn receive_frame_or_response_id(&mut self) -> Result<FrameOrResponseId, ReadFrameError>;
+    async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
+        loop {
+            match self.receive_frame_or_response_id().await? {
+                FrameOrResponseId::ResponseId(_) => {}
+                FrameOrResponseId::Frame(frame) => { return Ok(frame) }
+            }
+        }
+    }
 
     async fn receive_message(&mut self) -> crate::Result<RpcMessage> {
         let frame = self.receive_frame().await?;

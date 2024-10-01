@@ -1,11 +1,14 @@
+use std::collections::VecDeque;
 use std::io::{BufReader};
 use async_trait::async_trait;
 use crc::CRC_32_ISO_HDLC;
 use crate::rpcframe::{Protocol, RpcFrame};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use log::*;
-use shvproto::{ChainPackReader, Reader};
-use crate::framerw::{FrameReader, FrameWriter, serialize_meta};
+use shvproto::{ChainPackReader, MetaMap, Reader};
+use crate::framerw::{FrameReader, FrameWriter, serialize_meta, FrameOrResponseId, ReadFrameError, SomeData};
+use crate::rpcmessage::RqId;
+use crate::RpcMessageMetaTags;
 
 const STX: u8 = 0xA2;
 const ETX: u8 = 0xA3;
@@ -23,71 +26,257 @@ pub enum Byte {
     Atx,
     FramingError(u8),
 }
+enum ReadFrameResult {
+    Frame(RpcFrame),
+    ResponseId(RqId),
+    FrameError,
+    StreamError,
+}
+enum ReadBytesResult {
+    Ok,
+    Timeout,
+    FrameError,
+    StreamError,
+}
+struct RawData {
+    data: Vec<u8>,
+    in_escape: bool,
+    in_frame: bool,
+}
+struct FrameData {
+    data: Vec<u8>,
+    meta: Option<MetaMap>,
+    data_start: usize,
+    completed: bool,
+}
 pub struct SerialFrameReader<R: AsyncRead + Unpin + Send> {
     reader: R,
     with_crc: bool,
+    frame_data: FrameData,
+    raw_data: RawData,
 }
 impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
             reader,
             with_crc: false,
+            // state: ReaderState::WaitingForStx,
+            // meta: None,
+            // data_start: 0,
+            frame_data: FrameData {
+                data: vec![],
+                meta: Default::default(),
+                data_start: 0,
+                completed: false,
+            },
+            raw_data: RawData {
+                data: vec![],
+                in_escape: false,
+                in_frame: false,
+            },
         }
     }
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
         self
     }
-    async fn get_byte(&mut self) -> crate::Result<u8> {
-        let mut buff = [0u8; 1];
-        let n = self.reader.read(&mut buff[..]).await?;
+    // async fn get_escaped_bytes(&mut self) -> ReadBytesResult {
+    //     const BUFF_LEN: usize = 1024 * 4;
+    //     let mut buff = [0; BUFF_LEN];
+    //     let n = self.reader.read(&mut buff).await?;
+    //     if n == 0 {
+    //         ReadBytesResult::StreamError
+    //     } else {
+    //
+    //         for b in &buff[0 .. n] {
+    //             if self.last_byte_read == ESC {
+    //                 match b {
+    //                     ESTX => self.frames.push(STX),
+    //                     EETX => self.frames.push(ETX),
+    //                     EATX => self.frames.push(ATX),
+    //                     EESC => self.frames.push(ESC),
+    //                     b => {
+    //                         return Err(format!("Framing error, invalid escape byte {}", b).into());
+    //                     }
+    //                 }
+    //             } else {
+    //                 self.frames.push(*b);
+    //             };
+    //             self.last_byte_read = *b;
+    //         }
+    //         Ok(())
+    //     }
+    // }
+    async fn read_bytes(&mut self) -> Result<(), ReadFrameError> {
+        const BUFF_LEN: usize = 1024 * 4;
+        let mut buff = [0; BUFF_LEN];
+        let n = match self.reader.read(&mut buff).await {
+            Ok(n) => { n }
+            Err(_) => {
+                return Err(crate::framerw::ReadFrameError::StreamError)
+            }
+        };
         if n == 0 {
-            Err("End of stream".into())
+            Err(crate::framerw::ReadFrameError::StreamError)
         } else {
-            Ok(buff[0])
+            self.raw_data.data.append(&mut buff.to_vec());
+            Ok(())
         }
     }
-    async fn get_escaped_byte(&mut self) -> crate::Result<crate::serialrw::Byte> {
-        match self.get_byte().await? {
-            STX => Ok(crate::serialrw::Byte::Stx),
-            ETX => Ok(crate::serialrw::Byte::Etx),
-            ATX => Ok(crate::serialrw::Byte::Atx),
-            ESC => {
-                match self.get_byte().await? {
-                    ESTX => Ok(crate::serialrw::Byte::Data(STX)),
-                    EETX => Ok(crate::serialrw::Byte::Data(ETX)),
-                    EATX => Ok(crate::serialrw::Byte::Data(ATX)),
-                    EESC => Ok(crate::serialrw::Byte::Data(ESC)),
-                    b => {
-                        warn!("Framing error, invalid escape byte {}", b);
-                        Ok(crate::serialrw::Byte::FramingError(b))
-                    }
+    async fn get_some_data(&mut self) -> Result<SomeData, ReadFrameError>  {
+        let mut ret = SomeData { data: vec![], first: false, last: false };
+        if !self.raw_data.in_frame {
+            // wait for STX
+            loop {
+                if let Some(pos) = self.raw_data.data.iter().position(STX) {
+                    self.raw_data.data.drain(0 .. pos + 1);
+                    self.raw_data.in_frame = true;
+                    ret.first = true;
+                    break;
                 }
+                self.read_bytes().await?;
             }
-            b => Ok(crate::serialrw::Byte::Data(b))
         }
-    }
-    #[cfg(all(test, feature = "async-std"))]
-    async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
-        let mut data: Vec<u8> = Default::default();
-        while let Ok(b) = self.get_escaped_byte().await {
+        let mut consumed: usize = 0;
+        let mut recent_b: u8 = 0;
+        for b in &self.raw_data.data[ .. ] {
+            consumed += 1;
             match b {
-                Byte::Data(b) => { data.push(b) }
-                Byte::Stx => { data.push( STX) }
-                Byte::Etx => { data.push( ETX ) }
-                Byte::Atx => { data.push( ATX ) }
-                Byte::FramingError(b) => { return Err(format!("Framing error, invalid character {b}").into()) }
+                STX => {
+                    ret = SomeData { data: vec![], first: false, last: false };
+                },
+                ATX => {
+                    // cannot simply skip, because meta might be returned already
+                    return Err(ReadFrameError::FrameError);
+                },
+                ETX => {
+                    // check CRC
+                    if self.with_crc {
+                        
+                    }
+                },
+                b => {
+                    if recent_b == ESC {
+                        match b {
+                            ESTX => ret.data.push(STX),
+                            EETX => ret.data.push(ETX),
+                            EATX => ret.data.push(ATX),
+                            EESC => ret.data.push(ESC),
+                            b => {
+                                return Err(ReadFrameError::FrameError);
+                            }
+                        }
+                        consumed += 2;
+                    } else if b == ESC {
+                        consumed -= 1;
+                    } else {
+                        ret.data.push(*b);
+                    };
+                }
+
             }
+            recent_b = *b;
         }
-        Ok(data)
+        if self.raw_data.is_empty() || self.raw_data.len() == 1 && self.raw_data[0] == ESC {
+            self.read_bytes().await?;
+        }
+        Ok(())
     }
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
-    async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
-        let mut has_stx = false;
+    async fn receive_frame_or_response_id(&mut self) -> Result<FrameOrResponseId, ReadFrameError>  {
+        loop {
+            self.get_some_data().await?;
+            if self.frame_data.meta.is_none() {
+                // read protocol
+                if self.frame_data.data.len() > 0 {
+                    match self.frame_data.data[0] {
+                        0 => {
+                            // Protocol::ResetSession
+                            return Err(ReadFrameError::FrameError);
+                        }
+                        1 => {
+                            //Protocol::ChainPack
+                        },
+                        _ => {
+                            // Protocol not supported
+                            return Err(ReadFrameError::FrameError);
+                        }
+                    };
+                }
+                let mut buffrd = BufReader::new(&self.frame_data.data[1 ..]);
+                let mut rd = ChainPackReader::new(&mut buffrd);
+                if let Ok(Some(meta)) = rd.try_read_meta() {
+                    self.frame_data.data_start = rd.position() + 2;
+                    self.frame_data.meta = Some(meta);
+                    let meta = self.frame_data.meta.as_ref().unwrap();
+                    return if meta.is_response() {
+                        Ok(FrameOrResponseId::ResponseId(meta.request_id().unwrap_or_default()))
+                    } else {
+                        Ok(FrameOrResponseId::ResponseId(0))
+                    }
+                    //log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
+                }
+            } else {
+                if self.frame_data.completed {
+                    let mut data = std::mem::take(&mut self.frame_data.data);
+                    data.drain(.. self.frame_data.data_start);
+                    let frame = RpcFrame {
+                        protocol: Protocol::ChainPack,
+                        meta: std::mem::take(&mut self.frame_data.meta),
+                        data,
+                    };
+                    Ok(FrameOrResponseId::Frame(frame))
+                }
+            }
+        }
+        self.get_escaped_bytes().await?;
+        if self.frames[0] != STX {
+            if let Some(n) = self.frames.iter().position(STX) {
+                self.frames.drain(0 .. n);
+                self.state = ReaderState::WaitingForEtx;
+
+            } else {
+                self.frames = vec![];
+            }
+        }
+        if self.frames.len() > 1 && self.frames[0] == STX {
+            let data = self.frames[1 ..];
+            let protocol = match self.frames[0] {
+                0 => Protocol::ResetSession,
+                1 => Protocol::ChainPack,
+                _ => {
+                    self.frames.drain(0 .. 2);
+                    return Err("Invalid protocol received".into());
+                }
+            };
+            if protocol == Protocol::ResetSession {
+                self.frames.drain(0 .. 2);
+                return Err("Session reset".into());
+            }
+            if self.meta.is_none() {
+                let mut buffrd = BufReader::new(&self.frames[1 ..]);
+                let mut rd = ChainPackReader::new(&mut buffrd);
+                if let Ok(Some(meta)) = rd.try_read_meta() {
+                    self.data_start = rd.position() + 2;
+                    self.meta = Some(meta);
+                    let meta = self.meta.as_ref().unwrap();
+                    if meta.is_response() {
+                        return Ok(FrameOrResponseId::ResponseId(meta.request_id().unwrap_or_default()));
+                    }
+                    //log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
+                }
+            }
+        }
+        match self.state {
+            ReaderState::WaitingForStx => {
+            }
+            ReaderState::WaitingForEtx => {}
+            ReaderState::WaitingForCrc => {}
+        }
         'read_frame: loop {
-            if !has_stx {
+            if !self.has_stx {
                 loop {
                     match self.get_escaped_byte().await? {
                         Byte::Stx => { break }
@@ -95,12 +284,12 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
                     }
                 }
             }
-            has_stx = false;
+            self.has_stx = false;
             let mut data: Vec<u8> = vec![];
             loop {
                 match self.get_escaped_byte().await? {
                     Byte::Stx => {
-                        has_stx = true;
+                        self.has_stx = true;
                         continue 'read_frame
                     }
                     Byte::Data(b) => { data.push(b) }
@@ -113,7 +302,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
                 for crc_b in &mut crc_data {
                     match self.get_escaped_byte().await? {
                         Byte::Stx => {
-                            has_stx = true;
+                            self.has_stx = true;
                             continue 'read_frame
                         }
                         Byte::Data(b) => { *crc_b = b }

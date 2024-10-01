@@ -4,7 +4,7 @@ use crate::rpcframe::{Protocol, RpcFrame};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use log::*;
 use shvproto::{ChainPackReader, ChainPackWriter, Reader, ReadError};
-use crate::framerw::{FrameReader, FrameWriter, serialize_meta};
+use crate::framerw::{FrameReader, FrameWriter, serialize_meta, FrameOrResponseId};
 use shvproto::reader::ReadErrorReason;
 
 pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
@@ -28,7 +28,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
-    async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
+    async fn receive_frame_or_response_id(&mut self) -> crate::Result<FrameOrResponseId> {
         let mut lendata: Vec<u8> = vec![];
         let frame_len = loop {
             lendata.push(self.get_byte().await?);
