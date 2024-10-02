@@ -89,8 +89,9 @@ pub(crate) trait FrameReaderPrivate {
                     self.frame_data_ref_mut().meta = Some(meta);
                     return Ok(rmeta);
                 } else {
-                    log!(target: "FrameReader", Level::Warn, "Meta data read error");
-                    return Err(ReceiveFrameError::FrameError);
+                    // log!(target: "FrameReader", Level::Warn, "Meta data read error");
+                    //log!(target: "FrameReader", Level::Warn, "bytes:\n{}\n-------------", crate::util::hex_dump(&self.frame_data_ref_mut().data[..]));
+                    continue;
                 }
             }
             if self.frame_data_ref_mut().complete {
