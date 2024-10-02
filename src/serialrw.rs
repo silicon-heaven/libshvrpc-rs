@@ -16,12 +16,6 @@ const ESTX: u8 = 0x02;
 const EETX: u8 = 0x03;
 const EATX: u8 = 0x04;
 const EESC: u8 = 0x0A;
-pub enum EscapedByte {
-    Data(u8),
-    Stx,
-    Etx,
-    // Atx,
-}
 fn is_byte_available(raw_data: &RawData) -> bool {
     if raw_data.raw_bytes_available() == 0 {
         false
