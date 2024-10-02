@@ -132,14 +132,18 @@ pub trait FrameReader {
         Ok(msg)
     }
 }
-pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data: &mut Vec<u8>) -> Result<(), ReceiveFrameError> {
+pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data: &mut Vec<u8>, with_timeout: bool) -> Result<(), ReceiveFrameError> {
     const BUFF_LEN: usize = 1024 * 4;
     let mut buff = [0; BUFF_LEN];
-    let n = match reader.read(&mut buff).timeout(futures_time::time::Duration::from_secs(5)).await {
-        Ok(n) => { n }
-        Err(_) => {
-            return Err(ReceiveFrameError::Timeout);
+    let n = if with_timeout {
+        match reader.read(&mut buff).timeout(futures_time::time::Duration::from_secs(5)).await {
+            Ok(n) => { n }
+            Err(_) => {
+                return Err(ReceiveFrameError::Timeout);
+            }
         }
+    } else {
+        reader.read(&mut buff).await
     };
     let Ok(n) = n else {
         return Err(ReceiveFrameError::StreamError);

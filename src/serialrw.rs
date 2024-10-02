@@ -78,7 +78,8 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     }
     async fn get_raw_byte(&mut self) -> Result<u8, ReceiveFrameError> {
         if self.raw_data.raw_bytes_available() == 0 {
-            read_bytes(&mut self.reader, &mut self.raw_data.data).await?;
+            let with_timeout = !self.raw_data.data.is_empty();
+            read_bytes(&mut self.reader, &mut self.raw_data.data, with_timeout).await?;
         }
         let b = self.raw_data.data[self.raw_data.consumed];
         self.raw_data.consumed += 1;
