@@ -2,7 +2,7 @@ use std::io::BufReader;
 use std::mem::take;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncReadExt};
-use log::{debug, log, Level};
+use log::{log, Level};
 use crate::rpcframe::{Protocol, RpcFrame};
 use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
@@ -22,6 +22,20 @@ impl RpcFrameReception {
         }
     }
 }
+// impl RpcMessageMetaTags for RpcFrameReception {
+//     type Target = Self;
+//
+//     fn tag(&self, id: i32) -> Option<&RpcValue> {
+//         if id == Tag::RequestId as i32 { return self.request_id().map(|v| v.into()) }
+//         if id == Tag::ShvPath as i32 { return self.shv_path().map(|v| v.into()) }
+//         if id == Tag::Method as i32 { return self.method().map(|v| v.into()) }
+//         if id == Tag::Source as i32 { return self.source().map(|v| v.into()) }
+//         panic!("Unsupported tag.");
+//     }
+//     fn set_tag(&mut self, id: i32, val: Option<RpcValue>) -> &mut Self::Target {
+//         panic!("RpcFrameReception is RO.")
+//     }
+// }
 #[derive(Debug)]
 pub enum ReceiveFrameError {
     Timeout,
@@ -117,8 +131,7 @@ pub trait FrameReader {
 
     async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
         loop {
-            let f = self.receive_frame_or_request_id().await?;
-            if let RpcFrameReception::Frame(frame) = f {
+            if let RpcFrameReception::Frame(frame) = self.receive_frame_or_request_id().await? {
                 return Ok(frame);
             }
         }

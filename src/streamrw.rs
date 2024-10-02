@@ -92,8 +92,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
     async fn receive_frame_or_request_id(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
-        let ret = self.receive_frame_or_request_id_private().await;
-        ret
+        self.receive_frame_or_request_id_private().await
     }
 }
 // fn read_frame(buff: &[u8]) -> crate::Result<RpcFrame> {
