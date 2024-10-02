@@ -9,7 +9,7 @@ use shvproto::reader::ReadErrorReason;
 
 pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
     reader: R,
-    frame_len: usize,
+    bytes_to_read: usize,
     frame_data: FrameData,
     raw_data: RawData,
 }
@@ -17,7 +17,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
             reader,
-            frame_len: 0,
+            bytes_to_read: 0,
             frame_data: FrameData {
                 complete: false,
                 meta: None,
@@ -27,12 +27,13 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         }
     }
     fn reset_frame(&mut self) {
+        // debug!("RESET FRAME");
         self.frame_data = FrameData {
             complete: false,
             meta: None,
             data: vec![],
         };
-        self.frame_len = 0;
+        self.bytes_to_read = 0;
         self.raw_data.trim();
     }
     async fn get_raw_byte(&mut self) -> Result<u8, ReceiveFrameError> {
@@ -62,12 +63,16 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                     }
                 };
             };
-            self.frame_len = frame_len;
+            //debug!("frame len: {frame_len}");
+            self.bytes_to_read = frame_len;
         }
         let b = self.get_raw_byte().await?;
+        self.bytes_to_read -= 1;
+        //debug!("{}/{} byte: {:#02x}", self.frame_data.data.len(), self.frame_len, b);
         self.frame_data.data.push(b);
-        if self.frame_data.data.len() == self.frame_len {
+        if self.bytes_to_read == 0 {
             self.frame_data.complete = true;
+            //debug!("COMPLETE");
         }
         Ok(())
     }
@@ -79,7 +84,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
     }
 
     fn can_read_meta(&self) -> bool {
-        self.raw_data.raw_bytes_available() == 0 || self.frame_data.data.len() == self.frame_len
+        self.raw_data.raw_bytes_available() == 0 || self.frame_data.complete
     }
 
     fn frame_data_ref_mut(&mut self) -> &mut FrameData {
@@ -169,13 +174,17 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
 
 #[cfg(all(test, feature = "async-std"))]
 mod test {
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use std::task::Poll::Ready;
+    use async_std::io;
     use super::*;
     use crate::util::{hex_array, hex_dump};
     use crate::{RpcMessage, RpcMessageMetaTags};
     use async_std::io::BufWriter;
     fn init_log() {
         let _ = env_logger::builder()
-            .filter(None, LevelFilter::Debug)
+            //.filter(None, LevelFilter::Debug)
             .is_test(true).try_init();
     }
     #[async_std::test]
@@ -212,6 +221,63 @@ mod test {
             };
             assert_eq!(&rd_frame, &frame);
         }
+    }
+    struct Chunks {
+        chunks: Vec<Vec<u8>>,
+    }
+    impl AsyncRead for Chunks {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &mut [u8],
+        ) -> Poll<io::Result<usize>> {
+            assert!(!self.chunks.is_empty());
+            let chunk = self.chunks.remove(0);
+            //debug!("returning chunk: {}", hex_array(&chunk));
+            assert!(buf.len() >= chunk.len());
+            buf[.. chunk.len()].copy_from_slice(&chunk[..]);
+            Ready(Ok(chunk.len()))
+        }
+    }
+    fn from_hex(hex: &str) -> Vec<u8> {
+        let mut ret = vec![];
+        for s in hex.split(' ') {
+            let n = u8::from_str_radix(s, 16).unwrap();
+            ret.push(n);
+        }
+        ret
+    }
+    #[async_std::test]
+    async fn test_read_frame_by_chunks() {
+        init_log();
+        for chunks in [
+            // <1:1,8:5,9:"foo/bar",10:"baz">i{1:"hello"}
+            vec![
+                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+            ],
+            vec![
+                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61"),
+                from_hex("72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c"),
+                from_hex("6f ff"),
+            ],
+            vec![
+                from_hex("21"),
+                from_hex("01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61"),
+                from_hex("72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c"),
+                from_hex("6f ff"),
+            ],
+            vec![
+                from_hex("21 01 8b 41 41 48 45 49"),
+                from_hex("86 07 66 6f 6f 2f 62 61"),
+                from_hex("72 4a 86 03 62 61 7a ff 8a"),
+                from_hex("41 86 05 68 65 6c 6c"),
+                from_hex("6f ff"),
+            ],
+        ] {
+            let mut rd = StreamFrameReader::new(Chunks { chunks });
+            let frame = rd.receive_frame().await;
+            assert!(frame.is_ok());
+        };
     }
 }
 

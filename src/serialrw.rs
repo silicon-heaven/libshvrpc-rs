@@ -275,7 +275,6 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
                 [b0, b1, b2, b3]
             }
             let crc = digest.expect("digest should be some here").finalize();
-            //println!("CRC1 {crc}");
             let crc_bytes = u32_to_bytes(crc);
             self.write_escaped(&mut None, &crc_bytes).await?;
         }
