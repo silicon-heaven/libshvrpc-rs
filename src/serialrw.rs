@@ -201,7 +201,6 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for SerialFrameReader<R> {
     fn frame_data_ref_mut(&mut self) -> &mut FrameData {
         &mut self.frame_data
     }
-
     fn reset_frame_data(&mut self) {
         self.reset_frame(false)
     }

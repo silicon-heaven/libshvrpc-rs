@@ -7,6 +7,8 @@ use crate::rpcframe::{Protocol, RpcFrame};
 use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{RpcError, RpcErrorCode, RqId};
+use futures_time::future::FutureExt;
+
 #[derive(Debug)]
 pub enum RpcFrameReception {
     Meta { request_id: Option<RqId>, shv_path: Option<String>, method: Option<String>, source: Option<String> },
@@ -22,20 +24,7 @@ impl RpcFrameReception {
         }
     }
 }
-// impl RpcMessageMetaTags for RpcFrameReception {
-//     type Target = Self;
-//
-//     fn tag(&self, id: i32) -> Option<&RpcValue> {
-//         if id == Tag::RequestId as i32 { return self.request_id().map(|v| v.into()) }
-//         if id == Tag::ShvPath as i32 { return self.shv_path().map(|v| v.into()) }
-//         if id == Tag::Method as i32 { return self.method().map(|v| v.into()) }
-//         if id == Tag::Source as i32 { return self.source().map(|v| v.into()) }
-//         panic!("Unsupported tag.");
-//     }
-//     fn set_tag(&mut self, id: i32, val: Option<RpcValue>) -> &mut Self::Target {
-//         panic!("RpcFrameReception is RO.")
-//     }
-// }
+
 #[derive(Debug)]
 pub enum ReceiveFrameError {
     Timeout,
@@ -146,7 +135,13 @@ pub trait FrameReader {
 pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data: &mut Vec<u8>) -> Result<(), ReceiveFrameError> {
     const BUFF_LEN: usize = 1024 * 4;
     let mut buff = [0; BUFF_LEN];
-    let Ok(n) = reader.read(&mut buff).await else {
+    let n = match reader.read(&mut buff).timeout(futures_time::time::Duration::from_secs(5)).await {
+        Ok(n) => { n }
+        Err(_) => {
+            return Err(ReceiveFrameError::Timeout);
+        }
+    };
+    let Ok(n) = n else {
         return Err(ReceiveFrameError::StreamError);
     };
     if n == 0 {
