@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use crate::rpcframe::{Protocol, RpcFrame};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use log::*;
-use shvproto::{ChainPackReader, ChainPackWriter, Reader, ReadError};
-use crate::framerw::{FrameReader, FrameWriter, serialize_meta, ReceiveFrameError, read_bytes, RawData, FrameData};
+use shvproto::{ChainPackReader, ChainPackWriter, ReadError};
+use crate::framerw::{FrameWriter, serialize_meta, ReceiveFrameError, read_bytes, RawData, FrameData, FrameReaderPrivate, FrameReader, RpcFrameReception};
 use shvproto::reader::ReadErrorReason;
 
 pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
@@ -77,7 +77,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
     }
 }
 #[async_trait]
-impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
+impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
     async fn get_byte(&mut self) -> Result<(), ReceiveFrameError> {
         self.get_frame_data_byte().await
     }
@@ -164,31 +164,38 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
     //     }
     // }
 }
-
-pub fn read_frame(buff: &[u8]) -> crate::Result<RpcFrame> {
-    // log!(target: "RpcData", Level::Debug, "\n{}", hex_dump(buff));
-    let mut buffrd = BufReader::new(buff);
-    let mut rd = ChainPackReader::new(&mut buffrd);
-    let frame_len = match rd.read_uint_data() {
-        Ok(len) => { len as usize }
-        Err(err) => {
-            return Err(err.msg.into());
-        }
-    };
-    let pos = rd.position();
-    let data = &buff[pos .. pos + frame_len];
-    let protocol = if data[0] == 0 {Protocol::ResetSession} else { Protocol::ChainPack };
-    let data = &data[1 .. ];
-    let mut buffrd = BufReader::new(data);
-    let mut rd = ChainPackReader::new(&mut buffrd);
-    if let Ok(Some(meta)) = rd.try_read_meta() {
-        let pos = rd.position();
-        let frame = RpcFrame { protocol, meta, data: data[pos ..].to_vec() };
-        log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
-        return Ok(frame);
+#[async_trait]
+impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
+    async fn receive_frame_or_request_id(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
+        let ret = self.__receive_frame_or_request_id().await;
+        self.reset_frame_data();
+        ret
     }
-    Err("Meta data read error".into())
 }
+// pub fn read_frame(buff: &[u8]) -> crate::Result<RpcFrame> {
+//     // log!(target: "RpcData", Level::Debug, "\n{}", hex_dump(buff));
+//     let mut buffrd = BufReader::new(buff);
+//     let mut rd = ChainPackReader::new(&mut buffrd);
+//     let frame_len = match rd.read_uint_data() {
+//         Ok(len) => { len as usize }
+//         Err(err) => {
+//             return Err(err.msg.into());
+//         }
+//     };
+//     let pos = rd.position();
+//     let data = &buff[pos .. pos + frame_len];
+//     let protocol = if data[0] == 0 {Protocol::ResetSession} else { Protocol::ChainPack };
+//     let data = &data[1 .. ];
+//     let mut buffrd = BufReader::new(data);
+//     let mut rd = ChainPackReader::new(&mut buffrd);
+//     if let Ok(Some(meta)) = rd.try_read_meta() {
+//         let pos = rd.position();
+//         let frame = RpcFrame { protocol, meta, data: data[pos ..].to_vec() };
+//         log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
+//         return Ok(frame);
+//     }
+//     Err("Meta data read error".into())
+// }
 
 pub struct StreamFrameWriter<W: AsyncWrite + Unpin + Send> {
     writer: W,

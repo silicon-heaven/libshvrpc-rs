@@ -41,22 +41,17 @@ impl RawData {
         self.consumed = 0;
     }
 }
-pub struct FrameData {
+pub(crate) struct FrameData {
     pub(crate) complete: bool,
     pub(crate) meta: Option<MetaMap>,
     pub(crate) data: Vec<u8>,
 }
 #[async_trait]
-pub trait FrameReader {
+pub(crate) trait FrameReaderPrivate {
     async fn get_byte(&mut self) -> Result<(), ReceiveFrameError>;
     fn can_read_meta(&self) -> bool;
     fn frame_data_ref_mut(&mut self) -> &mut FrameData;
     fn reset_frame_data(&mut self);
-    async fn receive_frame_or_request_id(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
-        let ret = self.__receive_frame_or_request_id().await;
-        self.reset_frame_data();
-        ret
-    }
     async fn __receive_frame_or_request_id(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
         loop {
             self.get_byte().await?;
@@ -100,6 +95,10 @@ pub trait FrameReader {
             }
         }
     }
+}
+#[async_trait]
+pub trait FrameReader {
+    async fn receive_frame_or_request_id(&mut self) -> Result<RpcFrameReception, ReceiveFrameError>;
 
     async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
         loop {
