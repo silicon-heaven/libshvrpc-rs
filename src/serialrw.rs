@@ -209,8 +209,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for SerialFrameReader<R> {
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
     async fn receive_frame_or_request_id(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
-        let ret = self.__receive_frame_or_request_id().await;
-        self.reset_frame_data();
+        let ret = self.receive_frame_or_request_id_private().await;
         ret
     }
 }
@@ -299,7 +298,7 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
 mod test {
     use super::*;
     use crate::util::{hex_array, hex_dump};
-    use crate::RpcMessage;
+    use crate::{RpcMessage, RpcMessageMetaTags};
     use async_std::io::BufWriter;
     fn init_log() {
         let _ = env_logger::builder()
@@ -338,6 +337,7 @@ mod test {
     async fn test_write_frame() {
         init_log();
         let msg = RpcMessage::new_request("foo/bar", "baz", Some("hello".into()));
+        let rqid = msg.request_id();
         for with_crc in [false, true] {
             let frame = msg.to_frame().unwrap();
             let mut buff: Vec<u8> = vec![];
@@ -374,6 +374,10 @@ mod test {
                 let Err(ReceiveFrameError::FrameError) = rd.receive_frame_or_request_id().await else {
                     panic!("Frame error should be received");
                 };
+                let Ok(RpcFrameReception::Meta{ request_id, .. }) = rd.receive_frame_or_request_id().await else {
+                    panic!("Meta should be received");
+                };
+                assert_eq!(request_id, rqid);
                 let Ok(RpcFrameReception::Frame(rd_frame)) = rd.receive_frame_or_request_id().await else {
                     panic!("Frame should be received");
                 };
