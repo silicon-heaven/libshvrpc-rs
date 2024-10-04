@@ -68,7 +68,7 @@ pub(crate) trait FrameReaderPrivate {
     fn frame_data_ref_mut(&mut self) -> &mut FrameData;
     fn frame_data_ref(&self) -> &FrameData;
     fn reset_frame_data(&mut self);
-    async fn receive_frame_or_request_id_inner(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
+    async fn receive_frame_or_meta_inner(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
         loop {
             if !self.frame_data_ref().complete {
                 self.get_byte().await?;
@@ -108,8 +108,8 @@ pub(crate) trait FrameReaderPrivate {
             }
         }
     }
-    async fn receive_frame_or_request_id_private(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
-        let ret = self.receive_frame_or_request_id_inner().await;
+    async fn receive_frame_or_meta_private(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
+        let ret = self.receive_frame_or_meta_inner().await;
         if ret.is_err() {
             self.reset_frame_data();
         }
@@ -118,11 +118,11 @@ pub(crate) trait FrameReaderPrivate {
 }
 #[async_trait]
 pub trait FrameReader {
-    async fn receive_frame_or_request_id(&mut self) -> Result<RpcFrameReception, ReceiveFrameError>;
+    async fn receive_frame_or_meta(&mut self) -> Result<RpcFrameReception, ReceiveFrameError>;
 
     async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
         loop {
-            if let RpcFrameReception::Frame(frame) = self.receive_frame_or_request_id().await? {
+            if let RpcFrameReception::Frame(frame) = self.receive_frame_or_meta().await? {
                 return Ok(frame);
             }
         }
