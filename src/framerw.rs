@@ -66,21 +66,22 @@ pub(crate) trait FrameReaderPrivate {
     async fn get_byte(&mut self) -> Result<(), ReceiveFrameError>;
     fn can_read_meta(&self) -> bool;
     fn frame_data_ref_mut(&mut self) -> &mut FrameData;
+    fn frame_data_ref(&self) -> &FrameData;
     fn reset_frame_data(&mut self);
     async fn receive_frame_or_request_id_inner(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
         loop {
-            if !self.frame_data_ref_mut().complete {
+            if !self.frame_data_ref().complete {
                 self.get_byte().await?;
             }
-            if self.frame_data_ref_mut().meta.is_none() && self.can_read_meta() {
-                let proto = self.frame_data_ref_mut().data[0];
+            if self.frame_data_ref().meta.is_none() && self.can_read_meta() {
+                let proto = self.frame_data_ref().data[0];
                 if proto == Protocol::ResetSession as u8 {
                     return Err(ReceiveFrameError::StreamError);
                 }
                 if proto != Protocol::ChainPack as u8 {
                     return Err(ReceiveFrameError::FrameError);
                 }
-                let mut buffrd = BufReader::new(&self.frame_data_ref_mut().data[1..]);
+                let mut buffrd = BufReader::new(&self.frame_data_ref().data[1..]);
                 let mut rd = ChainPackReader::new(&mut buffrd);
                 if let Ok(Some(meta)) = rd.try_read_meta() {
                     let pos = rd.position() + 1;
@@ -94,8 +95,8 @@ pub(crate) trait FrameReaderPrivate {
                     continue;
                 }
             }
-            if self.frame_data_ref_mut().complete {
-                assert!(self.frame_data_ref_mut().meta.is_some());
+            if self.frame_data_ref().complete {
+                assert!(self.frame_data_ref().meta.is_some());
                 let frame = RpcFrame {
                     protocol: Protocol::ChainPack,
                     meta: take(&mut self.frame_data_ref_mut().meta).unwrap(),
