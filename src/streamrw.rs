@@ -58,7 +58,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                         let ReadError{reason, .. } = err;
                         match reason {
                             ReadErrorReason::UnexpectedEndOfStream => { continue }
-                            ReadErrorReason::InvalidCharacter => { return Err(ReceiveFrameError::FrameError) }
+                            ReadErrorReason::InvalidCharacter => { return Err(ReceiveFrameError::FrameError("Cannot read frame length, invalid byte received".into())) }
                         }
                     }
                 };

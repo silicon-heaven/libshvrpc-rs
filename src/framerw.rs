@@ -28,16 +28,16 @@ impl RpcFrameReception {
 #[derive(Debug)]
 pub enum ReceiveFrameError {
     Timeout,
-    FrameError,
-    StreamError,
+    FrameError(String),
+    StreamError(String),
 }
 
 impl From<ReceiveFrameError> for crate::Error {
     fn from(value: ReceiveFrameError) -> Self {
-        let msg = match value {
-            ReceiveFrameError::Timeout => { "Timeout" }
-            ReceiveFrameError::FrameError => { "FrameError" }
-            ReceiveFrameError::StreamError => { "StreamError" }
+        let msg: String = match value {
+            ReceiveFrameError::Timeout => { "Read frame timeout".into() }
+            ReceiveFrameError::FrameError(s) => { format!("FrameError - {s}") }
+            ReceiveFrameError::StreamError(s) => { format!("StreamError - {s}") }
         };
         msg.into()
     }
@@ -76,10 +76,10 @@ pub(crate) trait FrameReaderPrivate {
             if self.frame_data_ref().meta.is_none() && self.can_read_meta() {
                 let proto = self.frame_data_ref().data[0];
                 if proto == Protocol::ResetSession as u8 {
-                    return Err(ReceiveFrameError::StreamError);
+                    return Err(ReceiveFrameError::StreamError("Reset session message received.".into()));
                 }
                 if proto != Protocol::ChainPack as u8 {
-                    return Err(ReceiveFrameError::FrameError);
+                    return Err(ReceiveFrameError::FrameError(format!("Invalid protocol type received {:#02x}.", proto)));
                 }
                 let mut buffrd = BufReader::new(&self.frame_data_ref().data[1..]);
                 let mut rd = ChainPackReader::new(&mut buffrd);
@@ -147,11 +147,14 @@ pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data
     } else {
         reader.read(&mut buff).await
     };
-    let Ok(n) = n else {
-        return Err(ReceiveFrameError::StreamError);
+    let n = match n {
+        Ok(n) => { n }
+        Err(e) => {
+            return Err(ReceiveFrameError::StreamError(format!("Read stream error: {e}")));
+        }
     };
     if n == 0 {
-        Err(ReceiveFrameError::StreamError)
+        Err(ReceiveFrameError::StreamError("End of stream".into()))
     } else {
         data.extend_from_slice(&buff[..n]);
         Ok(())
