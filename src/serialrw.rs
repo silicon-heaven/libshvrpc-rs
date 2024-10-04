@@ -159,6 +159,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             }
             ATX => return Err(ReceiveFrameError::FrameError("ATX received, abborting current frame.".into())),
             ESC => {
+                self.update_crc_digest(ESC);
                 let b = self.get_raw_byte().await?;
                 self.update_crc_digest(b);
                 let ub = Self::unescape_byte(b)?;
@@ -291,9 +292,10 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
 #[cfg(all(test, feature = "async-std"))]
 mod test {
     use super::*;
-    use crate::util::{hex_array, hex_dump};
+    use crate::util::{hex_string};
     use crate::{RpcMessage, RpcMessageMetaTags};
     use async_std::io::BufWriter;
+
     fn init_log() {
         let _ = env_logger::builder()
             // .filter(None, LevelFilter::Debug)
@@ -328,11 +330,12 @@ mod test {
     }
 
     #[async_std::test]
-    async fn test_write_frame() {
+    async fn test_write_read_frame() {
         init_log();
-        let msg = RpcMessage::new_request("foo/bar", "baz", Some("hello".into()));
-        let rqid = msg.request_id();
+
         for with_crc in [false, true] {
+            let msg = RpcMessage::new_request("foo/bar", "baz", Some(with_crc.into()));
+            let rqid = msg.request_id();
             let frame = msg.to_frame().unwrap();
             let mut buff: Vec<u8> = vec![];
             let buffwr = BufWriter::new(&mut buff);
@@ -341,7 +344,7 @@ mod test {
                 wr.send_frame(frame.clone()).await.unwrap();
             }
             debug!("msg: {}", msg);
-            debug!("array: {}", hex_array(&buff));
+            debug!("len: {}, hex: {}", buff.len(), hex_string(&buff, Some(" ")));
             debug!("with crc: {with_crc}");
             for prefix in [
                 b"".to_vec(),
@@ -362,13 +365,13 @@ mod test {
             ] {
                 let mut buff2 = prefix;
                 buff2.append(&mut buff.clone());
-                debug!("bytes:\n{}\n-------------", hex_dump(&buff2));
+                //debug!("bytes:\n{}\n-------------", hex_dump(&buff2));
                 let buffrd = async_std::io::BufReader::new(&*buff2);
                 let mut rd = SerialFrameReader::new(buffrd).with_crc_check(with_crc);
                 let Err(ReceiveFrameError::FrameError(_)) = rd.receive_frame_or_meta().await else {
                     panic!("Frame error should be received");
                 };
-                let Ok(RpcFrameReception::Meta{ request_id, .. }) = rd.receive_frame_or_meta().await else {
+                let Ok(RpcFrameReception::Meta { request_id, .. }) = rd.receive_frame_or_meta().await else {
                     panic!("Meta should be received");
                 };
                 assert_eq!(request_id, rqid);
@@ -378,5 +381,51 @@ mod test {
                 assert_eq!(&rd_frame, &frame);
             }
         }
+    }
+
+    #[async_std::test]
+    async fn test_read_frame_by_chunks() {
+        init_log();
+
+        for chunks in [
+            // msg: <1:1,8:1,9:"foo/bar",10:"baz">i{1:1}
+            vec![
+                crate::framerw::test::from_hex("a2 01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff a3 44 cc 24 df"),
+            ],
+            vec![
+                crate::framerw::test::from_hex("a2 01 8b 41 41"),
+                crate::framerw::test::from_hex("48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff a3"),
+                crate::framerw::test::from_hex("44 cc 24 df"),
+            ],
+
+            // ESC in CRC
+            // msg: <1:1,8:19,9:"foo/bar",10:"baz">i{1:18}
+            vec![
+                crate::framerw::test::from_hex("a2 01 8b 41 41 48 53 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 52 ff a3 aa 02 84 e6 8c"),
+            ],
+            vec![
+                crate::framerw::test::from_hex("a2 01 8b 41 41 48 53 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 52 ff a3 aa"),
+                crate::framerw::test::from_hex("02 84 e6 8c"),
+            ],
+
+            // ESC in data
+            // msg: <1:1,8:162,9:"foo/bar",10:"baz">i{1:161}
+            vec![
+                crate::framerw::test::from_hex("a2 01 8b 41 41 48 82 80 aa 02 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 82 80 a1 ff a3 12 53 57 e5"),
+            ],
+            vec![
+                crate::framerw::test::from_hex("a2 01 8b 41 41 48 82 80 aa"),
+                crate::framerw::test::from_hex("02 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 82 80 a1 ff"),
+                crate::framerw::test::from_hex("a3"),
+                crate::framerw::test::from_hex("12 53 57"),
+                crate::framerw::test::from_hex("e5"),
+            ],
+        ] {
+            println!("hex: {:?}", chunks);
+
+            let mut rd = SerialFrameReader::new(crate::framerw::test::Chunks { chunks }).with_crc_check(true);
+            let frame = rd.receive_frame().await;
+            assert!(frame.is_ok());
+        };
     }
 }

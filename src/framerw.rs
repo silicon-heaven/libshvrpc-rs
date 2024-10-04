@@ -207,3 +207,47 @@ pub fn serialize_meta(frame: &RpcFrame) -> crate::Result<Vec<u8>> {
     Ok(data)
 }
 
+#[cfg(all(test, feature = "async-std"))]
+pub(crate) mod test {
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use std::task::Poll::Ready;
+    use async_std::io;
+    use super::*;
+
+    pub(crate) struct Chunks {
+        pub(crate) chunks: Vec<Vec<u8>>,
+    }
+    impl AsyncRead for Chunks {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &mut [u8],
+        ) -> Poll<io::Result<usize>> {
+            assert!(!self.chunks.is_empty());
+            let chunk = self.chunks.remove(0);
+            //debug!("returning chunk: {}", hex_array(&chunk));
+            assert!(buf.len() >= chunk.len());
+            buf[.. chunk.len()].copy_from_slice(&chunk[..]);
+            Ready(Ok(chunk.len()))
+        }
+    }
+    pub(crate) fn from_hex(hex: &str) -> Vec<u8> {
+        let mut ret = vec![];
+        for s in hex.split(' ') {
+            let n = match s {
+                "STX" => { 0xa2 }
+                "ESTX" => { 0x02 }
+                "ETX" => { 0xa3 }
+                "EETX" => { 0x03 }
+                "ATX" => { 0xa4 }
+                "EATX" => { 0x04 }
+                "ESC" => { 0xaa }
+                "EESC" => { 0x0a }
+                s => u8::from_str_radix(s, 16).unwrap()
+            };
+            ret.push(n);
+        }
+        ret
+    }
+}

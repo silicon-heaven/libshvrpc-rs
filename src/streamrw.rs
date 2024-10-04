@@ -175,10 +175,8 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
 
 #[cfg(all(test, feature = "async-std"))]
 mod test {
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
-    use std::task::Poll::Ready;
-    use async_std::io;
+    use crate::framerw::test::Chunks;
+use crate::framerw::test::from_hex;
     use super::*;
     use crate::util::{hex_array, hex_dump};
     use crate::{RpcMessage, RpcMessageMetaTags};
@@ -223,31 +221,7 @@ mod test {
             assert_eq!(&rd_frame, &frame);
         }
     }
-    struct Chunks {
-        chunks: Vec<Vec<u8>>,
-    }
-    impl AsyncRead for Chunks {
-        fn poll_read(
-            mut self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-            buf: &mut [u8],
-        ) -> Poll<io::Result<usize>> {
-            assert!(!self.chunks.is_empty());
-            let chunk = self.chunks.remove(0);
-            //debug!("returning chunk: {}", hex_array(&chunk));
-            assert!(buf.len() >= chunk.len());
-            buf[.. chunk.len()].copy_from_slice(&chunk[..]);
-            Ready(Ok(chunk.len()))
-        }
-    }
-    fn from_hex(hex: &str) -> Vec<u8> {
-        let mut ret = vec![];
-        for s in hex.split(' ') {
-            let n = u8::from_str_radix(s, 16).unwrap();
-            ret.push(n);
-        }
-        ret
-    }
+
     #[async_std::test]
     async fn test_read_frame_by_chunks() {
         init_log();
