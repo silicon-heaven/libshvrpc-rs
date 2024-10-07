@@ -186,14 +186,18 @@ pub fn split_glob_on_match<'a>(glob_pattern: &'a str, shv_path: &str) -> Result<
     }
 }
 pub fn hex_array(data: &[u8]) -> String {
-    let mut ret = "[".to_string();
+    format!("[0x{}]", hex_string(data, Some(",0x")))
+}
+pub fn hex_string(data: &[u8], delim: Option<&str>) -> String {
+    let mut ret = "".to_string();
     for b in data {
-        if ret.len() > 1 {
-            ret += ",";
+        if let Some(delim) = delim {
+            if ret.len() > 1 {
+                ret += delim;
+            }
         }
-        ret += &format!("0x{:02x}", b);
+        ret += &format!("{:02x}", b);
     }
-    ret += "]";
     ret
 }
 pub fn hex_dump(data: &[u8]) -> String {
@@ -236,7 +240,13 @@ pub fn hex_dump(data: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use log::{debug};
     use crate::util::{glob_len, left_glob, split_glob_on_match, starts_with_path, strip_prefix_path};
+    fn init_log() {
+        let _ = env_logger::builder()
+            // .filter(None, LevelFilter::Debug)
+            .is_test(true).try_init();
+    }
 
     #[test]
     fn test_glob_len() {
@@ -308,6 +318,7 @@ mod tests {
     }
     #[test]
     fn test_strip_path() {
+        init_log();
         let data = vec![
             ("", "", Some("")),
             ("", "/", Some("")),
@@ -324,7 +335,7 @@ mod tests {
             ("a/b", "a/bc", None),
         ];
         for (prefix, path, res) in data {
-            println!("prefix: {prefix}, path: {path}");
+            debug!("prefix: {prefix}, path: {path}");
             assert_eq!(strip_prefix_path(path, prefix), res);
         }
     }

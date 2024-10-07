@@ -20,7 +20,6 @@ pub type PeerId = i64;
 // backward compatibility
 pub type CliId = PeerId;
 
-#[allow(dead_code)]
 pub enum Tag {
     RequestId = rpctype::Tag::USER as isize, // 8
     ShvPath = 9,
@@ -35,8 +34,6 @@ pub enum Tag {
     Repeat = 20,
     MAX
 }
-
-#[allow(dead_code)]
 pub enum Key {Params = 1, Result, Error, ErrorCode, ErrorMessage, MAX }
 
 #[derive(Clone, Debug)]
@@ -190,14 +187,7 @@ impl Default for RpcMessage {
         RpcMessage(RpcValue::new(IMap::new().into(),Some(mm)))
     }
 }
-/*
 
-impl DerefMut for RpcMessage {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-*/
 pub trait RpcMessageMetaTags {
     type Target;
 
@@ -226,9 +216,6 @@ pub trait RpcMessageMetaTags {
     fn shv_path(&self) -> Option<&str> {
         self.tag(Tag::ShvPath as i32).map(RpcValue::as_str)
     }
-    //fn shv_path_or_empty(&self) -> &str {
-    //    self.shv_path().unwrap_or("")
-    //}
     fn set_shvpath(&mut self, shv_path: &str) -> &mut Self::Target {
         self.set_tag(Tag::ShvPath as i32, Some(RpcValue::from(shv_path)))
     }
@@ -303,7 +290,7 @@ pub trait RpcMessageMetaTags {
     }
 }
 impl RpcMessageMetaTags for RpcMessage {
-    type Target = RpcMessage;
+    type Target = Self;
 
     fn tag(&self, id: i32) -> Option<&RpcValue> {
         self.tag(id)
