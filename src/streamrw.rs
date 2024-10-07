@@ -254,6 +254,21 @@ use crate::framerw::test::from_hex;
             assert!(frame.is_ok());
         };
     }
+    #[async_std::test]
+    async fn test_read_multiframe_chunk() {
+        init_log();
+        let data = from_hex(
+            "21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff
+                    21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff
+                    21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"
+        );
+        let buffrd = async_std::io::BufReader::new(&*data);
+        let mut rd = StreamFrameReader::new(buffrd);
+        for _ in 0 .. 2 {
+            let frame = rd.receive_frame().await;
+            assert!(frame.is_ok());
+        }
+    }
 }
 
 

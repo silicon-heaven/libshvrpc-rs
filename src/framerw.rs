@@ -235,6 +235,10 @@ pub(crate) mod test {
     pub(crate) fn from_hex(hex: &str) -> Vec<u8> {
         let mut ret = vec![];
         for s in hex.split(' ') {
+            let s = s.trim();
+            if s.is_empty() {
+                continue;
+            }
             let n = match s {
                 "STX" => { 0xa2 }
                 "ESTX" => { 0x02 }
