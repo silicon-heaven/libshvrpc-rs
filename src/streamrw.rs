@@ -186,39 +186,47 @@ use crate::framerw::test::from_hex;
             //.filter(None, LevelFilter::Debug)
             .is_test(true).try_init();
     }
-    #[async_std::test]
-    async fn test_write_frame() {
-        init_log();
-        let msg = RpcMessage::new_request("foo/bar", "baz", Some("hello".into()));
-        let rqid = msg.request_id();
-
-        let frame = msg.to_frame().unwrap();
+    async fn frame_to_data(frame: &RpcFrame) -> Vec<u8> {
         let mut buff: Vec<u8> = vec![];
         let buffwr = BufWriter::new(&mut buff);
         {
             let mut wr = StreamFrameWriter::new(buffwr);
             wr.send_frame(frame.clone()).await.unwrap();
         }
-        debug!("msg: {}", msg);
-        debug!("array: {}", hex_array(&buff));
-        debug!("bytes:\n{}\n-------------", hex_dump(&buff));
-        {
-            let buffrd = async_std::io::BufReader::new(&*buff);
-            let mut rd = StreamFrameReader::new(buffrd);
-            let rd_frame = rd.receive_frame().await.unwrap();
-            assert_eq!(&rd_frame, &frame);
-        }
-        {
-            let buffrd = async_std::io::BufReader::new(&*buff);
-            let mut rd = StreamFrameReader::new(buffrd);
-            let Ok(RpcFrameReception::Meta{ request_id, .. }) = rd.receive_frame_or_meta().await else {
-                panic!("Meta should be received");
-            };
-            assert_eq!(request_id, rqid);
-            let Ok(RpcFrameReception::Frame(rd_frame)) = rd.receive_frame_or_meta().await else {
-                panic!("Frame should be received");
-            };
-            assert_eq!(&rd_frame, &frame);
+        buff
+    }
+    #[async_std::test]
+    async fn test_write_frame() {
+        init_log();
+        for msg in [
+            RpcMessage::new_request("foo/bar", "baz", Some("hello".into())),
+            RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 128][..]).into())),
+        ] {
+            let rqid = msg.request_id();
+            let frame = msg.to_frame().unwrap();
+
+            let buff = frame_to_data(&frame).await;
+            debug!("msg: {}", msg);
+            debug!("array: {}", hex_array(&buff));
+            debug!("bytes:\n{}\n-------------", hex_dump(&buff));
+            {
+                let buffrd = async_std::io::BufReader::new(&*buff);
+                let mut rd = StreamFrameReader::new(buffrd);
+                let rd_frame = rd.receive_frame().await.unwrap();
+                assert_eq!(&rd_frame, &frame);
+            }
+            {
+                let buffrd = async_std::io::BufReader::new(&*buff);
+                let mut rd = StreamFrameReader::new(buffrd);
+                let Ok(RpcFrameReception::Meta{ request_id, .. }) = rd.receive_frame_or_meta().await else {
+                    panic!("Meta should be received");
+                };
+                assert_eq!(request_id, rqid);
+                let Ok(RpcFrameReception::Frame(rd_frame)) = rd.receive_frame_or_meta().await else {
+                    panic!("Frame should be received");
+                };
+                assert_eq!(&rd_frame, &frame);
+            }
         }
     }
 
@@ -276,6 +284,47 @@ use crate::framerw::test::from_hex;
                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff 21"),
                from_hex("01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff"),
                from_hex("ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+            ],
+        ] {
+            let mut rd = StreamFrameReader::new(Chunks { chunks });
+            for _ in 0 .. 2 {
+                let frame = rd.receive_frame().await;
+                assert!(frame.is_ok());
+            }
+        };
+    }
+    #[async_std::test]
+    async fn test_read_big_frame_more_chunks() {
+        init_log();
+        let msg = RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 129][..]).into()));
+        // 0000 80 9e 01 8b 41 41 48 42 49 86 07 66 6f 6f 2f 62 ....AAHBI..foo/b
+        // 0010 61 72 4a 86 03 62 61 7a ff 8a 41 85 80 80 00 00 arJ..baz..A.....
+        // 0020 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
+        // 0030 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
+        // 0040 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
+        // 0050 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
+        // 0060 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
+        // 0070 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
+        // 0080 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
+        // 0090 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff ................
+        let data1 = frame_to_data(&msg.to_frame().unwrap()).await;
+        let data1_len = data1.len();
+        let meta_start = 3;
+        let meta_end = 0x19;
+        let mut data = data1.clone();
+        data.append(&mut data1.clone());
+            for chunks in [
+            vec![
+                data1.clone(),
+                data1.clone(),
+            ],
+            vec![
+                data[0 .. 1].to_vec(),
+                data[1 .. 2].to_vec(),
+                data[2 .. meta_start].to_vec(),
+                data[meta_start .. meta_end].to_vec(),
+                data[meta_end .. data1_len + 1].to_vec(),
+                data[data1_len + 1 ..].to_vec(),
             ],
         ] {
             let mut rd = StreamFrameReader::new(Chunks { chunks });
