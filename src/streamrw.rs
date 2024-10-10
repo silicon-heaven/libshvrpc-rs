@@ -46,7 +46,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         Ok(b)
     }
     async fn get_frame_data_byte(&mut self) -> Result<(), ReceiveFrameError> {
-        if self.frame_data.data.is_empty() {
+        if self.bytes_to_read == 0 {
             let mut lendata: Vec<u8> = vec![];
             let frame_len = loop {
                 lendata.push(self.get_raw_byte().await?);
@@ -63,7 +63,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                     }
                 };
             };
-            //debug!("frame len: {frame_len}");
+            //println!("frame len: {frame_len}");
             self.bytes_to_read = frame_len;
         }
         let b = self.get_raw_byte().await?;
@@ -230,6 +230,11 @@ use crate::framerw::test::from_hex;
             vec![
                 from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
             ],
+            // chunk split after meta end
+            vec![
+                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff"),
+                from_hex("8a 41 86 05 68 65 6c 6c 6f ff"),
+            ],
             vec![
                 from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61"),
                 from_hex("72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c"),
@@ -255,19 +260,30 @@ use crate::framerw::test::from_hex;
         };
     }
     #[async_std::test]
-    async fn test_read_multiframe_chunk() {
+    async fn test_read_two_frames_more_chunks() {
         init_log();
-        let data = from_hex(
-            "21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff
-                    21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff
-                    21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"
-        );
-        let buffrd = async_std::io::BufReader::new(&*data);
-        let mut rd = StreamFrameReader::new(buffrd);
-        for _ in 0 .. 2 {
-            let frame = rd.receive_frame().await;
-            assert!(frame.is_ok());
-        }
+        for chunks in [
+            // <1:1,8:5,9:"foo/bar",10:"baz">i{1:"hello"}
+            vec![
+                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff
+                          21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+            ],
+            vec![
+                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+            ],
+            vec![
+               from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff 21"),
+               from_hex("01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff"),
+               from_hex("ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+            ],
+        ] {
+            let mut rd = StreamFrameReader::new(Chunks { chunks });
+            for _ in 0 .. 2 {
+                let frame = rd.receive_frame().await;
+                assert!(frame.is_ok());
+            }
+        };
     }
 }
 
