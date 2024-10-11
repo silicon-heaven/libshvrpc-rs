@@ -172,14 +172,6 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         };
         Ok(())
     }
-    async fn get_frame_data_bytes(&mut self) -> Result<(), ReceiveFrameError> {
-        loop {
-            self.get_frame_data_byte().await?;
-            if self.frame_data.complete || !is_byte_available(&self.raw_data) {
-                return Ok(())
-            }
-        }
-    }
     #[cfg(all(test, feature = "async-std"))]
     async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
         let mut data: Vec<u8> = Default::default();
@@ -196,7 +188,12 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for SerialFrameReader<R> {
     async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError> {
-        self.get_frame_data_bytes().await
+        loop {
+            self.get_frame_data_byte().await?;
+            if self.frame_data.complete || !is_byte_available(&self.raw_data) {
+                return Ok(())
+            }
+        }
     }
     fn frame_data_ref_mut(&mut self) -> &mut FrameData {
         &mut self.frame_data
