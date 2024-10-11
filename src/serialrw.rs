@@ -153,10 +153,14 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                 self.frame_data.complete = true;
                 return Ok(())
             }
-            ATX => return Err(ReceiveFrameError::FrameError("ATX received, abborting current frame.".into())),
+            ATX => return Err(ReceiveFrameError::FrameError("ATX received, aborting current frame.".into())),
             ESC => {
                 self.update_crc_digest(ESC);
                 let b = self.get_raw_byte().await?;
+                if b == STX {
+                    self.unget_stx();
+                    return Err(ReceiveFrameError::FrameError("Incomplete frame, new STX received within escaped data.".into()));
+                }
                 self.update_crc_digest(b);
                 let ub = Self::unescape_byte(b)?;
                 self.frame_data.data.push(ub)
@@ -363,6 +367,7 @@ mod test {
             }
             for prefix in [
                 [STX].to_vec(),
+                [STX, ESC].to_vec(),
                 [STX, ESC, 1u8].to_vec(),
             ] {
                 let mut buff2 = prefix;
