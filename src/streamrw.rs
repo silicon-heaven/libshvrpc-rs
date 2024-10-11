@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::io::{BufReader};
 use async_trait::async_trait;
 use crate::rpcframe::{RpcFrame};
@@ -23,29 +24,37 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                 meta: None,
                 data: vec![],
             },
-            raw_data: RawData { data: vec![], consumed: 0 },
+            raw_data: RawData::new(),
         }
     }
     fn reset_frame(&mut self) {
-        // debug!("RESET FRAME");
+        debug!("RESET FRAME");
         self.frame_data = FrameData {
             complete: false,
             meta: None,
             data: vec![],
         };
         self.bytes_to_read = 0;
-        self.raw_data.trim();
+    }
+    async fn get_raw_bytes(&mut self, count: usize, copy_to_frame_data: bool) -> Result<&[u8], ReceiveFrameError> {
+        if self.raw_data.is_empty() {
+            let with_timeout = self.bytes_to_read != 0;
+            read_bytes(&mut self.reader, &mut self.raw_data, with_timeout).await?;
+        }
+        let n = min(count, self.raw_data.bytes_available());
+        let data = &self.raw_data.data[self.raw_data.consumed .. self.raw_data.consumed + n];
+        self.raw_data.consumed += n;
+        if copy_to_frame_data {
+            self.frame_data.data.extend_from_slice(data);
+            self.bytes_to_read -= data.len();
+        }
+        Ok(data)
     }
     async fn get_raw_byte(&mut self) -> Result<u8, ReceiveFrameError> {
-        if self.raw_data.raw_bytes_available() == 0 {
-            let with_timeout = !self.raw_data.data.is_empty();
-            read_bytes(&mut self.reader, &mut self.raw_data.data, with_timeout).await?;
-        }
-        let b = self.raw_data.data[self.raw_data.consumed];
-        self.raw_data.consumed += 1;
-        Ok(b)
+        let data = self.get_raw_bytes(1, false).await?;
+        Ok(data[0])
     }
-    async fn get_frame_data_byte(&mut self) -> Result<(), ReceiveFrameError> {
+    async fn get_frame_data_bytes(&mut self) -> Result<(), ReceiveFrameError> {
         if self.bytes_to_read == 0 {
             let mut lendata: Vec<u8> = vec![];
             let frame_len = loop {
@@ -64,12 +73,13 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                 };
             };
             //println!("frame len: {frame_len}");
+            self.reset_frame();
             self.bytes_to_read = frame_len;
+            self.frame_data.data.clear();
+            self.frame_data.data.reserve(frame_len);
         }
-        let b = self.get_raw_byte().await?;
-        self.bytes_to_read -= 1;
+        self.get_raw_bytes(self.bytes_to_read, true).await?;
         //debug!("{}/{} byte: {:#02x}", self.frame_data.data.len(), self.frame_len, b);
-        self.frame_data.data.push(b);
         if self.bytes_to_read == 0 {
             self.frame_data.complete = true;
             //debug!("COMPLETE");
@@ -79,12 +89,8 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
-    async fn get_byte(&mut self) -> Result<(), ReceiveFrameError> {
-        self.get_frame_data_byte().await
-    }
-
-    fn can_read_meta(&self) -> bool {
-        self.raw_data.raw_bytes_available() == 0 || self.frame_data.complete
+    async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError> {
+        self.get_frame_data_bytes().await
     }
 
     fn frame_data_ref_mut(&mut self) -> &mut FrameData {
@@ -270,6 +276,7 @@ use crate::framerw::test::from_hex;
     #[async_std::test]
     async fn test_read_two_frames_more_chunks() {
         init_log();
+        //debug!("test_read_two_frames_more_chunks");
         for chunks in [
             // <1:1,8:5,9:"foo/bar",10:"baz">i{1:"hello"}
             vec![

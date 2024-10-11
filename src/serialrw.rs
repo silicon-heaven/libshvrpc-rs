@@ -17,9 +17,9 @@ const EETX: u8 = 0x03;
 const EATX: u8 = 0x04;
 const EESC: u8 = 0x0A;
 fn is_byte_available(raw_data: &RawData) -> bool {
-    if raw_data.raw_bytes_available() == 0 {
+    if raw_data.bytes_available() == 0 {
         false
-    } else if raw_data.raw_bytes_available() == 1 {
+    } else if raw_data.bytes_available() == 1 {
         raw_data.data[raw_data.consumed] != crate::serialrw::ESC
     } else {
         true
@@ -51,10 +51,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                 meta: None,
                 data: vec![],
             },
-            raw_data: RawData {
-                data: vec![],
-                consumed: 0,
-            },
+            raw_data: RawData::new(),
         }
     }
     fn reset_frame(&mut self, has_stx: bool) {
@@ -65,7 +62,6 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         };
         self.has_stx = has_stx;
         self.crc_digest = CRC_32.digest();
-        self.raw_data.trim();
     }
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
@@ -77,9 +73,9 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         }
     }
     async fn get_raw_byte(&mut self) -> Result<u8, ReceiveFrameError> {
-        if self.raw_data.raw_bytes_available() == 0 {
-            let with_timeout = !self.raw_data.data.is_empty();
-            read_bytes(&mut self.reader, &mut self.raw_data.data, with_timeout).await?;
+        if self.raw_data.bytes_available() == 0 {
+            let with_timeout = self.has_stx;
+            read_bytes(&mut self.reader, &mut self.raw_data, with_timeout).await?;
         }
         let b = self.raw_data.data[self.raw_data.consumed];
         self.raw_data.consumed += 1;
@@ -172,6 +168,14 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         };
         Ok(())
     }
+    async fn get_frame_data_bytes(&mut self) -> Result<(), ReceiveFrameError> {
+        loop {
+            self.get_frame_data_byte().await?;
+            if self.frame_data.complete || !is_byte_available(&self.raw_data) {
+                return Ok(())
+            }
+        }
+    }
     #[cfg(all(test, feature = "async-std"))]
     async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
         let mut data: Vec<u8> = Default::default();
@@ -187,11 +191,8 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for SerialFrameReader<R> {
-    async fn get_byte(&mut self) -> Result<(), ReceiveFrameError> {
-        self.get_frame_data_byte().await
-    }
-    fn can_read_meta(&self) -> bool {
-        self.frame_data.complete || !is_byte_available(&self.raw_data)
+    async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError> {
+        self.get_frame_data_bytes().await
     }
     fn frame_data_ref_mut(&mut self) -> &mut FrameData {
         &mut self.frame_data

@@ -2,12 +2,13 @@ use std::io::BufReader;
 use std::mem::take;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncReadExt};
-use log::{log, Level};
+use log::{debug, log, log_enabled, Level};
 use crate::rpcframe::{Protocol, RpcFrame};
 use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{RpcError, RpcErrorCode, RqId};
 use futures_time::future::FutureExt;
+use crate::util::hex_dump;
 
 #[derive(Debug)]
 pub enum RpcFrameReception {
@@ -42,18 +43,26 @@ impl From<ReceiveFrameError> for crate::Error {
         msg.into()
     }
 }
+const RAW_DATA_LEN: usize = 1024 * 4;
 pub(crate) struct RawData {
-    pub(crate) data: Vec<u8>,
+    pub(crate) data: [u8; RAW_DATA_LEN],
     pub(crate) consumed: usize,
+    pub(crate) count: usize,
 }
 impl RawData {
-    pub(crate) fn raw_bytes_available(&self) -> usize {
-        assert!(self.data.len() >= self.consumed);
-        self.data.len() - self.consumed
+    pub(crate) fn new() -> Self {
+        Self {
+            data: [0; RAW_DATA_LEN],
+            consumed: 0,
+            count: 0,
+        }
     }
-    pub(crate) fn trim(&mut self) {
-        self.data.drain( .. self.consumed);
-        self.consumed = 0;
+    pub(crate) fn bytes_available(&self) -> usize {
+        assert!(self.count >= self.consumed);
+        self.count - self.consumed
+    }
+    pub(crate) fn is_empty(&self) -> bool {
+        self.bytes_available() == 0
     }
 }
 pub(crate) struct FrameData {
@@ -63,17 +72,24 @@ pub(crate) struct FrameData {
 }
 #[async_trait]
 pub(crate) trait FrameReaderPrivate {
-    async fn get_byte(&mut self) -> Result<(), ReceiveFrameError>;
-    fn can_read_meta(&self) -> bool;
+    async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError>;
     fn frame_data_ref_mut(&mut self) -> &mut FrameData;
     fn frame_data_ref(&self) -> &FrameData;
     fn reset_frame_data(&mut self);
     async fn receive_frame_or_meta_inner(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
+        debug!("receive_frame_or_meta_inner, frame completed: {}", self.frame_data_ref().complete);
         loop {
             if !self.frame_data_ref().complete {
-                self.get_byte().await?;
+                if log_enabled!(Level::Debug) {
+                    let n = self.frame_data_ref().data.len();
+                    self.get_bytes().await?;
+                    let data = &self.frame_data_ref().data[n ..];
+                    debug!("new data ++++++++++++++++++++++++++\n{}", hex_dump(data));
+                } else {
+                    self.get_bytes().await?;
+                }
             }
-            if self.frame_data_ref().meta.is_none() && self.can_read_meta() {
+            if self.frame_data_ref().meta.is_none() {
                 let proto = self.frame_data_ref().data[0];
                 if proto == Protocol::ResetSession as u8 {
                     return Err(ReceiveFrameError::StreamError("Reset session message received.".into()));
@@ -88,6 +104,7 @@ pub(crate) trait FrameReaderPrivate {
                     self.frame_data_ref_mut().data.drain(..pos);
                     let rmeta = RpcFrameReception::from_meta(&meta);
                     self.frame_data_ref_mut().meta = Some(meta);
+                    debug!("\tMETA");
                     return Ok(rmeta);
                 } else {
                     // log!(target: "FrameReader", Level::Warn, "Meta data read error");
@@ -103,6 +120,7 @@ pub(crate) trait FrameReaderPrivate {
                     data: take(&mut self.frame_data_ref_mut().data),
                 };
                 self.reset_frame_data();
+                debug!("\tFRAME");
                 log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
                 return Ok(RpcFrameReception::Frame(frame))
             }
@@ -134,18 +152,16 @@ pub trait FrameReader {
         Ok(msg)
     }
 }
-pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data: &mut Vec<u8>, with_timeout: bool) -> Result<(), ReceiveFrameError> {
-    const BUFF_LEN: usize = 1024 * 4;
-    let mut buff = [0; BUFF_LEN];
+pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data: &mut RawData, with_timeout: bool) -> Result<(), ReceiveFrameError> {
     let n = if with_timeout {
-        match reader.read(&mut buff).timeout(futures_time::time::Duration::from_secs(5)).await {
+        match reader.read(&mut data.data).timeout(futures_time::time::Duration::from_secs(5)).await {
             Ok(n) => { n }
             Err(_) => {
                 return Err(ReceiveFrameError::Timeout);
             }
         }
     } else {
-        reader.read(&mut buff).await
+        reader.read(&mut data.data).await
     };
     let n = match n {
         Ok(n) => { n }
@@ -156,7 +172,11 @@ pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data
     if n == 0 {
         Err(ReceiveFrameError::StreamError("End of stream".into()))
     } else {
-        data.extend_from_slice(&buff[..n]);
+        if log_enabled!(target: "RpcData", Level::Debug) {
+            log!(target: "RpcData", Level::Debug, "data received -------------------------\n{}", hex_dump(&data.data[0 .. n]));
+        }
+        data.consumed = 0;
+        data.count = n;
         Ok(())
     }
 }
