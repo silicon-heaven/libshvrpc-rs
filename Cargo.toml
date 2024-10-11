@@ -4,7 +4,7 @@ version = "3.0.14"
 edition = "2021"
 
 [dependencies]
-shvproto = { git = "https://github.com/silicon-heaven/libshvproto-rs.git", branch = "master", version = "3.0.11" }
+shvproto = { git = "https://github.com/silicon-heaven/libshvproto-rs.git", branch = "master", version = "3.0.15" }
 
 futures = "0.3.29"
 log = "0.4.21"
