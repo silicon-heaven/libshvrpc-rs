@@ -369,6 +369,8 @@ mod test {
                 [STX].to_vec(),
                 [STX, ESC].to_vec(),
                 [STX, ESC, 1u8].to_vec(),
+                [STX, ATX].to_vec(),
+                [STX, ESC, ATX].to_vec(),
             ] {
                 let mut buff2 = prefix;
                 buff2.append(&mut buff.clone());
