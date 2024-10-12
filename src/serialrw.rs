@@ -48,7 +48,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             has_stx: false,
             frame_data: FrameData {
                 complete: false,
-                meta: None,
+                meta_received: false,
                 data: vec![],
             },
             raw_data: RawData::new(),
@@ -57,7 +57,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     fn reset_frame(&mut self, has_stx: bool) {
         self.frame_data = FrameData {
             complete: false,
-            meta: None,
+            meta_received: false,
             data: vec![],
         };
         self.has_stx = has_stx;
@@ -295,7 +295,7 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
 mod test {
     use super::*;
     use crate::util::{hex_dump, hex_string};
-    use crate::{RpcMessage, RpcMessageMetaTags};
+    use crate::{RpcMessage};
     use async_std::io::BufWriter;
     use crate::framerw::test::from_hex;
 
@@ -338,7 +338,7 @@ mod test {
 
         for with_crc in [false, true] {
             let msg = RpcMessage::new_request("foo/bar", "baz", Some(with_crc.into()));
-            let rqid = msg.request_id();
+            let rq_meta = msg.meta().clone();
             let frame = msg.to_frame().unwrap();
             let mut buff: Vec<u8> = vec![];
             let buffwr = BufWriter::new(&mut buff);
@@ -377,13 +377,15 @@ mod test {
                 let Err(ReceiveFrameError::FrameError(_)) = rd.receive_frame_or_meta().await else {
                     panic!("Frame error should be received");
                 };
-                let Ok(RpcFrameReception::Meta { request_id, .. }) = rd.receive_frame_or_meta().await else {
+                let Ok(RpcFrameReception::Meta(protocol, meta)) = rd.receive_frame_or_meta().await else {
                     panic!("Meta should be received");
                 };
-                assert_eq!(request_id, rqid);
-                let Ok(RpcFrameReception::Frame(rd_frame)) = rd.receive_frame_or_meta().await else {
+                assert_eq!(protocol, Protocol::ChainPack);
+                assert_eq!(rq_meta, meta);
+                let Ok(RpcFrameReception::FrameData(data)) = rd.receive_frame_or_meta().await else {
                     panic!("Frame should be received");
                 };
+                let rd_frame = RpcFrame{ protocol, meta, data };
                 assert_eq!(&rd_frame, &frame);
             }
         }

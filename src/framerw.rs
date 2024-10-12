@@ -12,20 +12,9 @@ use crate::util::hex_dump;
 
 #[derive(Debug)]
 pub enum RpcFrameReception {
-    Meta { request_id: Option<RqId>, shv_path: Option<String>, method: Option<String>, source: Option<String> },
-    Frame(RpcFrame),
+    Meta(Protocol, MetaMap),
+    FrameData(Vec<u8>),
 }
-impl RpcFrameReception {
-    fn from_meta(meta: &MetaMap) -> Self {
-        Self::Meta {
-            request_id: meta.request_id(),
-            shv_path: meta.shv_path().map(|s| s.to_string()),
-            method: meta.method().map(|s| s.to_string()),
-            source: meta.source().map(|s| s.to_string()),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum ReceiveFrameError {
     Timeout,
@@ -67,7 +56,7 @@ impl RawData {
 }
 pub(crate) struct FrameData {
     pub(crate) complete: bool,
-    pub(crate) meta: Option<MetaMap>,
+    pub(crate) meta_received: bool,
     pub(crate) data: Vec<u8>,
 }
 #[async_trait]
@@ -89,7 +78,7 @@ pub(crate) trait FrameReaderPrivate {
                     self.get_bytes().await?;
                 }
             }
-            if self.frame_data_ref().meta.is_none() {
+            if !self.frame_data_ref().meta_received {
                 let proto = self.frame_data_ref().data[0];
                 if proto == Protocol::ResetSession as u8 {
                     return Err(ReceiveFrameError::StreamError("Reset session message received.".into()));
@@ -102,10 +91,9 @@ pub(crate) trait FrameReaderPrivate {
                 if let Ok(Some(meta)) = rd.try_read_meta() {
                     let pos = rd.position() + 1;
                     self.frame_data_ref_mut().data.drain(..pos);
-                    let rmeta = RpcFrameReception::from_meta(&meta);
-                    self.frame_data_ref_mut().meta = Some(meta);
+                    self.frame_data_ref_mut().meta_received = true;
                     debug!("\tMETA");
-                    return Ok(rmeta);
+                    return Ok(RpcFrameReception::Meta(Protocol::ChainPack, meta));
                 } else {
                     // log!(target: "FrameReader", Level::Warn, "Meta data read error");
                     //log!(target: "FrameReader", Level::Warn, "bytes:\n{}\n-------------", crate::util::hex_dump(&self.frame_data_ref_mut().data[..]));
@@ -113,16 +101,14 @@ pub(crate) trait FrameReaderPrivate {
                 }
             }
             if self.frame_data_ref().complete {
-                assert!(self.frame_data_ref().meta.is_some());
-                let frame = RpcFrame {
-                    protocol: Protocol::ChainPack,
-                    meta: take(&mut self.frame_data_ref_mut().meta).unwrap(),
-                    data: take(&mut self.frame_data_ref_mut().data),
-                };
+                assert!(self.frame_data_ref().meta_received);
+                let frame_data = take(&mut self.frame_data_ref_mut().data);
                 self.reset_frame_data();
                 debug!("\tFRAME");
-                log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
-                return Ok(RpcFrameReception::Frame(frame))
+                if log_enabled!(target: "RpcMsg", Level::Debug) {
+                    log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
+                }
+                return Ok(RpcFrameReception::FrameData(frame_data))
             }
         }
     }
@@ -139,9 +125,21 @@ pub trait FrameReader {
     async fn receive_frame_or_meta(&mut self) -> Result<RpcFrameReception, ReceiveFrameError>;
 
     async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
+        let mut recent_meta: Option<MetaMap> = None;
         loop {
-            if let RpcFrameReception::Frame(frame) = self.receive_frame_or_meta().await? {
-                return Ok(frame);
+            match self.receive_frame_or_meta().await? {
+                RpcFrameReception::Meta(_, meta) => { recent_meta = Some(meta) }
+                RpcFrameReception::FrameData(data) => {
+                    if let Some(meta) = take(&mut recent_meta) {
+                        return Ok(RpcFrame{
+                            protocol: Protocol::ChainPack,
+                            meta,
+                            data,
+                        })
+                    } else { 
+                        return Err(ReceiveFrameError::FrameError("Frame data received without previous meta data.".into()).into())
+                    }
+                }
             }
         }
     }
