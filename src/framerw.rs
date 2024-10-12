@@ -12,16 +12,13 @@ use crate::util::hex_dump;
 
 #[derive(Debug)]
 pub enum RpcFrameReception {
-    Meta { request_id: Option<RqId>, shv_path: Option<String>, method: Option<String>, source: Option<String> },
+    MetaAnnouncement { response_id: Option<RqId> },
     Frame(RpcFrame),
 }
 impl RpcFrameReception {
     fn from_meta(meta: &MetaMap) -> Self {
-        Self::Meta {
-            request_id: meta.request_id(),
-            shv_path: meta.shv_path().map(|s| s.to_string()),
-            method: meta.method().map(|s| s.to_string()),
-            source: meta.source().map(|s| s.to_string()),
+        Self::MetaAnnouncement {
+            response_id: if meta.is_response() { Some(meta.request_id().unwrap_or_default()) } else { None },
         }
     }
 }

@@ -185,7 +185,7 @@ mod test {
 use crate::framerw::test::from_hex;
     use super::*;
     use crate::util::{hex_array, hex_dump};
-    use crate::{RpcMessage, RpcMessageMetaTags};
+    use crate::{RpcMessage};
     use async_std::io::BufWriter;
     fn init_log() {
         let _ = env_logger::builder()
@@ -208,7 +208,6 @@ use crate::framerw::test::from_hex;
             RpcMessage::new_request("foo/bar", "baz", Some("hello".into())),
             RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 128][..]).into())),
         ] {
-            let rqid = msg.request_id();
             let frame = msg.to_frame().unwrap();
 
             let buff = frame_to_data(&frame).await;
@@ -224,10 +223,9 @@ use crate::framerw::test::from_hex;
             {
                 let buffrd = async_std::io::BufReader::new(&*buff);
                 let mut rd = StreamFrameReader::new(buffrd);
-                let Ok(RpcFrameReception::Meta{ request_id, .. }) = rd.receive_frame_or_meta().await else {
+                let Ok(RpcFrameReception::MetaAnnouncement { .. }) = rd.receive_frame_or_meta().await else {
                     panic!("Meta should be received");
                 };
-                assert_eq!(request_id, rqid);
                 let Ok(RpcFrameReception::Frame(rd_frame)) = rd.receive_frame_or_meta().await else {
                     panic!("Frame should be received");
                 };
