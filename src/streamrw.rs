@@ -5,7 +5,7 @@ use crate::rpcframe::{RpcFrame};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use log::*;
 use shvproto::{ChainPackReader, ChainPackWriter, ReadError};
-use crate::framerw::{FrameWriter, serialize_meta, ReceiveFrameError, read_bytes, RawData, FrameData, FrameReaderPrivate, FrameReader, RpcFrameReception};
+use crate::framerw::{FrameWriter, serialize_meta, ReceiveFrameError, read_bytes, RawData, FrameData, FrameReaderPrivate, FrameReader};
 use shvproto::reader::ReadErrorReason;
 
 pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
@@ -28,7 +28,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         }
     }
     fn reset_frame(&mut self) {
-        debug!("RESET FRAME");
+        //debug!("RESET FRAME");
         self.frame_data = FrameData {
             complete: false,
             meta: None,
@@ -104,8 +104,8 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
-    async fn receive_frame_or_meta(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
-        self.receive_frame_or_meta_private().await
+    async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
+        self.receive_frame_private().await
     }
 }
 // fn read_frame(buff: &[u8]) -> crate::Result<RpcFrame> {
@@ -223,12 +223,7 @@ use crate::framerw::test::from_hex;
             {
                 let buffrd = async_std::io::BufReader::new(&*buff);
                 let mut rd = StreamFrameReader::new(buffrd);
-                let Ok(RpcFrameReception::MetaAnnouncement { .. }) = rd.receive_frame_or_meta().await else {
-                    panic!("Meta should be received");
-                };
-                let Ok(RpcFrameReception::Frame(rd_frame)) = rd.receive_frame_or_meta().await else {
-                    panic!("Frame should be received");
-                };
+                let rd_frame = rd.receive_frame().await.unwrap();
                 assert_eq!(&rd_frame, &frame);
             }
         }

@@ -1,4 +1,4 @@
-use crate::framerw::{read_bytes, FrameData, FrameReader, FrameReaderPrivate, RawData, RpcFrameReception};
+use crate::framerw::{read_bytes, FrameData, FrameReader, FrameReaderPrivate, RawData};
 use crate::framerw::{serialize_meta, FrameWriter, ReceiveFrameError};
 use crate::rpcframe::{Protocol, RpcFrame};
 use async_trait::async_trait;
@@ -207,8 +207,8 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for SerialFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
-    async fn receive_frame_or_meta(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
-        self.receive_frame_or_meta_private().await
+    async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
+        self.receive_frame_private().await
     }
 }
 pub struct SerialFrameWriter<W: AsyncWrite + Unpin + Send> {
@@ -373,15 +373,10 @@ mod test {
                 //debug!("bytes:\n{}\n-------------", hex_dump(&buff2));
                 let buffrd = async_std::io::BufReader::new(&*buff2);
                 let mut rd = SerialFrameReader::new(buffrd).with_crc_check(with_crc);
-                let Err(ReceiveFrameError::FrameError(_)) = rd.receive_frame_or_meta().await else {
+                let Err(ReceiveFrameError::FrameError(_)) = rd.receive_frame().await else {
                     panic!("Frame error should be received");
                 };
-                let Ok(RpcFrameReception::MetaAnnouncement { .. }) = rd.receive_frame_or_meta().await else {
-                    panic!("Meta should be received");
-                };
-                let Ok(RpcFrameReception::Frame(rd_frame)) = rd.receive_frame_or_meta().await else {
-                    panic!("Frame should be received");
-                };
+                let rd_frame = rd.receive_frame().await.unwrap();
                 assert_eq!(&rd_frame, &frame);
             }
         }

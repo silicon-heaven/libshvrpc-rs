@@ -11,19 +11,6 @@ use futures_time::future::FutureExt;
 use crate::util::hex_dump;
 
 #[derive(Debug)]
-pub enum RpcFrameReception {
-    MetaAnnouncement { response_id: Option<RqId> },
-    Frame(RpcFrame),
-}
-impl RpcFrameReception {
-    fn from_meta(meta: &MetaMap) -> Self {
-        Self::MetaAnnouncement {
-            response_id: if meta.is_response() { Some(meta.request_id().unwrap_or_default()) } else { None },
-        }
-    }
-}
-
-#[derive(Debug)]
 pub enum ReceiveFrameError {
     Timeout,
     FrameError(String),
@@ -73,18 +60,11 @@ pub(crate) trait FrameReaderPrivate {
     fn frame_data_ref_mut(&mut self) -> &mut FrameData;
     fn frame_data_ref(&self) -> &FrameData;
     fn reset_frame_data(&mut self);
-    async fn receive_frame_or_meta_inner(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
+    async fn try_receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
         debug!("receive_frame_or_meta_inner, frame completed: {}", self.frame_data_ref().complete);
         loop {
             if !self.frame_data_ref().complete {
-                if log_enabled!(Level::Debug) {
-                    let n = self.frame_data_ref().data.len();
-                    self.get_bytes().await?;
-                    let data = &self.frame_data_ref().data[n ..];
-                    debug!("new data ++++++++++++++++++++++++++\n{}", hex_dump(data));
-                } else {
-                    self.get_bytes().await?;
-                }
+                self.get_bytes().await?;
             }
             if self.frame_data_ref().meta.is_none() {
                 let proto = self.frame_data_ref().data[0];
@@ -99,15 +79,12 @@ pub(crate) trait FrameReaderPrivate {
                 if let Ok(Some(meta)) = rd.try_read_meta() {
                     let pos = rd.position() + 1;
                     self.frame_data_ref_mut().data.drain(..pos);
-                    let rmeta = RpcFrameReception::from_meta(&meta);
                     self.frame_data_ref_mut().meta = Some(meta);
-                    debug!("\tMETA");
-                    return Ok(rmeta);
+                    //debug!("\tMETA");
                 } else {
-                    // log!(target: "FrameReader", Level::Warn, "Meta data read error");
-                    //log!(target: "FrameReader", Level::Warn, "bytes:\n{}\n-------------", crate::util::hex_dump(&self.frame_data_ref_mut().data[..]));
-                    continue;
+                    // incomplete meta received
                 }
+                continue;
             }
             if self.frame_data_ref().complete {
                 assert!(self.frame_data_ref().meta.is_some());
@@ -117,14 +94,14 @@ pub(crate) trait FrameReaderPrivate {
                     data: take(&mut self.frame_data_ref_mut().data),
                 };
                 self.reset_frame_data();
-                debug!("\tFRAME");
+                //debug!("\tFRAME");
                 log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
-                return Ok(RpcFrameReception::Frame(frame))
+                return Ok(frame)
             }
         }
     }
-    async fn receive_frame_or_meta_private(&mut self) -> Result<RpcFrameReception, ReceiveFrameError> {
-        let ret = self.receive_frame_or_meta_inner().await;
+    async fn receive_frame_private(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
+        let ret = self.try_receive_frame().await;
         if ret.is_err() {
             self.reset_frame_data();
         }
@@ -133,15 +110,7 @@ pub(crate) trait FrameReaderPrivate {
 }
 #[async_trait]
 pub trait FrameReader {
-    async fn receive_frame_or_meta(&mut self) -> Result<RpcFrameReception, ReceiveFrameError>;
-
-    async fn receive_frame(&mut self) -> crate::Result<RpcFrame> {
-        loop {
-            if let RpcFrameReception::Frame(frame) = self.receive_frame_or_meta().await? {
-                return Ok(frame);
-            }
-        }
-    }
+    async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError>;
 
     async fn receive_message(&mut self) -> crate::Result<RpcMessage> {
         let frame = self.receive_frame().await?;

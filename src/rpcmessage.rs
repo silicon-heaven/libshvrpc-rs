@@ -26,12 +26,14 @@ pub enum Tag {
     Method = 10,
     CallerIds = 11,
     ProtocolType = 12, //needed when destination client is using different version than source one to translate raw message data to correct format
-    RevCallerIds = 13,
+    RevCallerIds = 13, // SHV2 compatibility
     Access = 14,
     UserId = 16,
     AccessLevel = 17,
+    SeqNo = 18,
     Source = 19,
     Repeat = 20,
+    Part = 21,
     MAX
 }
 pub enum Key {Params = 1, Result, Error, ErrorCode, ErrorMessage, MAX }
