@@ -48,7 +48,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             has_stx: false,
             frame_data: FrameData {
                 complete: false,
-                meta: None,
+                meta_received: false,
                 data: vec![],
             },
             raw_data: RawData::new(),
@@ -57,7 +57,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     fn reset_frame(&mut self, has_stx: bool) {
         self.frame_data = FrameData {
             complete: false,
-            meta: None,
+            meta_received: false,
             data: vec![],
         };
         self.has_stx = has_stx;
@@ -335,7 +335,7 @@ mod test {
     #[async_std::test]
     async fn test_write_read_frame() {
         init_log();
-
+        debug!("test_write_read_frame()");
         for with_crc in [false, true] {
             let msg = RpcMessage::new_request("foo/bar", "baz", Some(with_crc.into()));
             let rqid = msg.request_id();
@@ -377,13 +377,25 @@ mod test {
                 let Err(ReceiveFrameError::FrameError(_)) = rd.receive_frame_or_meta().await else {
                     panic!("Frame error should be received");
                 };
-                let Ok(RpcFrameReception::Meta { request_id, .. }) = rd.receive_frame_or_meta().await else {
+                let Ok(RpcFrameReception::Meta(meta)) = rd.receive_frame_or_meta().await else {
                     panic!("Meta should be received");
                 };
-                assert_eq!(request_id, rqid);
-                let Ok(RpcFrameReception::Frame(rd_frame)) = rd.receive_frame_or_meta().await else {
-                    panic!("Frame should be received");
+                assert_eq!(meta.request_id(), rqid);
+                let mut rd_frame = RpcFrame {
+                    protocol: Protocol::ChainPack,
+                    meta,
+                    data: vec![],
                 };
+                loop {
+                    if let Ok(RpcFrameReception::FrameDataChunk { mut chunk, last_chunk }) = rd.receive_frame_or_meta().await {
+                        rd_frame.data.append(&mut chunk);
+                        if last_chunk {
+                            break;
+                        }
+                    } else {
+                        panic!("Frame should be received");
+                    };
+                }
                 assert_eq!(&rd_frame, &frame);
             }
         }
