@@ -17,16 +17,22 @@ pub enum ReceiveFrameError {
     StreamError(String),
 }
 
-impl From<ReceiveFrameError> for crate::Error {
-    fn from(value: ReceiveFrameError) -> Self {
-        let msg: String = match value {
-            ReceiveFrameError::Timeout => { "Read frame timeout".into() }
-            ReceiveFrameError::FrameError(s) => { format!("FrameError - {s}") }
-            ReceiveFrameError::StreamError(s) => { format!("StreamError - {s}") }
-        };
-        msg.into()
+impl std::fmt::Display for ReceiveFrameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReceiveFrameError::Timeout => write!(f, "Read frame timeout"),
+            ReceiveFrameError::FrameError(s) => write!(f, "FrameError - {s}"),
+            ReceiveFrameError::StreamError(s) => write!(f, "StreamError - {s}"),
+        }
     }
 }
+
+impl From<ReceiveFrameError> for crate::Error {
+    fn from(value: ReceiveFrameError) -> Self {
+        value.to_string().into()
+    }
+}
+
 const RAW_DATA_LEN: usize = 1024 * 4;
 pub(crate) struct RawData {
     pub(crate) data: [u8; RAW_DATA_LEN],
