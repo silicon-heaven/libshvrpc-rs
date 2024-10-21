@@ -5,10 +5,12 @@ use crate::rpcframe::{RpcFrame};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use log::*;
 use shvproto::{ChainPackReader, ChainPackWriter, ReadError};
-use crate::framerw::{FrameWriter, serialize_meta, ReceiveFrameError, read_bytes, RawData, FrameData, FrameReaderPrivate, FrameReader};
+use crate::framerw::{FrameWriter, serialize_meta, ReceiveFrameError, read_bytes, RawData, FrameData, FrameReaderPrivate, FrameReader, format_peer_id};
 use shvproto::reader::ReadErrorReason;
+use crate::rpcmessage::PeerId;
 
 pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
+    peer_id: PeerId,
     reader: R,
     bytes_to_read: usize,
     frame_data: FrameData,
@@ -17,6 +19,7 @@ pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
 impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
+            peer_id: 0,
             reader,
             bytes_to_read: 0,
             frame_data: FrameData {
@@ -89,6 +92,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
+    fn peer_id(&self) -> PeerId { return self.peer_id }
     async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError> {
         self.get_frame_data_bytes().await
     }
@@ -104,6 +108,8 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
+    fn peer_id(&self) -> PeerId { return self.peer_id }
+    fn set_peer_id(&mut self, peer_id: PeerId) { self.peer_id = peer_id }
     async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
         self.receive_frame_private().await
     }
@@ -134,11 +140,13 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
 // }
 
 pub struct StreamFrameWriter<W: AsyncWrite + Unpin + Send> {
+    peer_id: PeerId,
     writer: W,
 }
 impl<W: AsyncWrite + Unpin + Send> StreamFrameWriter<W> {
     pub fn new(writer: W) -> Self {
         Self {
+            peer_id: 0,
             writer,
         }
     }
@@ -146,8 +154,10 @@ impl<W: AsyncWrite + Unpin + Send> StreamFrameWriter<W> {
 
 #[async_trait]
 impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
+    fn peer_id(&self) -> PeerId { return self.peer_id }
+    fn set_peer_id(&mut self, peer_id: PeerId) { self.peer_id = peer_id }
     async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()> {
-        log!(target: "RpcMsg", Level::Debug, "S<== {}", &frame.to_rpcmesage().unwrap_or_default());
+        log!(target: "RpcMsg", Level::Debug, "S<== {} {}", format_peer_id(self.peer_id), &frame.to_rpcmesage().unwrap_or_default());
         let meta_data = serialize_meta(&frame)?;
         let mut header = Vec::new();
         let mut wr = ChainPackWriter::new(&mut header);

@@ -6,7 +6,7 @@ use log::{debug, log, log_enabled, Level};
 use crate::rpcframe::{Protocol, RpcFrame};
 use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
-use crate::rpcmessage::{RpcError, RpcErrorCode, RqId};
+use crate::rpcmessage::{PeerId, RpcError, RpcErrorCode, RqId};
 use futures_time::future::FutureExt;
 use crate::util::hex_dump;
 
@@ -60,8 +60,16 @@ pub(crate) struct FrameData {
     pub(crate) meta: Option<MetaMap>,
     pub(crate) data: Vec<u8>,
 }
+pub(crate) fn format_peer_id(peer_id: PeerId) -> String {
+    if peer_id > 0 {
+        format!("peer:{peer_id}")
+    } else {
+        "".to_string()
+    }
+}
 #[async_trait]
 pub(crate) trait FrameReaderPrivate {
+    fn peer_id(&self) -> PeerId;
     async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError>;
     fn frame_data_ref_mut(&mut self) -> &mut FrameData;
     fn frame_data_ref(&self) -> &FrameData;
@@ -101,7 +109,7 @@ pub(crate) trait FrameReaderPrivate {
                 };
                 self.reset_frame_data();
                 //debug!("\tFRAME");
-                log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
+                log!(target: "RpcMsg", Level::Debug, "R==> {} {}", format_peer_id(self.peer_id()), &frame);
                 return Ok(frame)
             }
         }
@@ -116,8 +124,9 @@ pub(crate) trait FrameReaderPrivate {
 }
 #[async_trait]
 pub trait FrameReader {
+    fn peer_id(&self) -> PeerId;
+    fn set_peer_id(&mut self, peer_id: PeerId);
     async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError>;
-
     async fn receive_message(&mut self) -> crate::Result<RpcMessage> {
         let frame = self.receive_frame().await?;
         let msg = frame.to_rpcmesage()?;
@@ -154,6 +163,8 @@ pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data
 }
 #[async_trait]
 pub trait FrameWriter {
+    fn peer_id(&self) -> PeerId;
+    fn set_peer_id(&mut self, peer_id: PeerId);
     async fn send_reset_session(&mut self) -> crate::Result<()> {
         self.send_frame(RpcFrame{
             protocol: Protocol::ResetSession,

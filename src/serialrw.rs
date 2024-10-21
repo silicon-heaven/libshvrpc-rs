@@ -1,4 +1,4 @@
-use crate::framerw::{read_bytes, FrameData, FrameReader, FrameReaderPrivate, RawData};
+use crate::framerw::{format_peer_id, read_bytes, FrameData, FrameReader, FrameReaderPrivate, RawData};
 use crate::framerw::{serialize_meta, FrameWriter, ReceiveFrameError};
 use crate::rpcframe::{Protocol, RpcFrame};
 use async_trait::async_trait;
@@ -6,6 +6,7 @@ use crc::{Crc, CRC_32_ISO_HDLC};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use log::*;
 use std::mem::{replace};
+use crate::rpcmessage::PeerId;
 
 const STX: u8 = 0xA2;
 const ETX: u8 = 0xA3;
@@ -27,6 +28,7 @@ fn is_byte_available(raw_data: &RawData) -> bool {
 }
 
 pub struct SerialFrameReader<R: AsyncRead + Unpin + Send> {
+    peer_id: PeerId,
     reader: R,
     with_crc: bool,
     crc_digest: crc::Digest<'static, u32>,
@@ -42,6 +44,7 @@ const CRC_32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
+            peer_id: 0,
             reader,
             with_crc: false,
             crc_digest: CRC_32.digest(),
@@ -187,6 +190,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for SerialFrameReader<R> {
+    fn peer_id(&self) -> PeerId { return self.peer_id }
     async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError> {
         loop {
             self.get_frame_data_byte().await?;
@@ -207,17 +211,21 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for SerialFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
+    fn peer_id(&self) -> PeerId { return self.peer_id }
+    fn set_peer_id(&mut self, peer_id: PeerId) { self.peer_id = peer_id }
     async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
         self.receive_frame_private().await
     }
 }
 pub struct SerialFrameWriter<W: AsyncWrite + Unpin + Send> {
+    peer_id: PeerId,
     writer: W,
     with_crc: bool,
 }
 impl<W: AsyncWrite + Unpin + Send> SerialFrameWriter<W> {
     pub fn new(writer: W) -> Self {
         Self {
+            peer_id: 0,
             writer,
             with_crc: false,
         }
@@ -256,8 +264,10 @@ impl<W: AsyncWrite + Unpin + Send> SerialFrameWriter<W> {
 }
 #[async_trait]
 impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
+    fn peer_id(&self) -> PeerId { return self.peer_id }
+    fn set_peer_id(&mut self, peer_id: PeerId) { self.peer_id = peer_id }
     async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()> {
-        log!(target: "RpcMsg", Level::Debug, "S<== {}", &frame);
+        log!(target: "RpcMsg", Level::Debug, "S<== {} {}", format_peer_id(self.peer_id), &frame);
         let gen = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
         let mut digest = if self.with_crc {
             Some(gen.digest())
