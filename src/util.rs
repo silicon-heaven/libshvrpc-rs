@@ -29,16 +29,12 @@ pub fn join_path(p1: &str, p2: &str) -> String {
     }
 }
 pub fn starts_with_path(shv_path: &str, with_path: &str) -> bool {
-    let with_path = if let Some(with_path) = with_path.strip_suffix('/') {
-        with_path
-    } else {
-        with_path
-    };
-    if with_path.is_empty() {
+    let with_path_without_trailing_slash = with_path.strip_suffix('/').unwrap_or(with_path);
+    if with_path_without_trailing_slash.is_empty() {
         return true
     }
-    shv_path.starts_with(with_path)
-        && (shv_path.len() == with_path.len() || shv_path[with_path.len() ..].starts_with('/'))
+    shv_path.starts_with(with_path_without_trailing_slash)
+        && (shv_path.len() == with_path_without_trailing_slash.len() || shv_path[with_path_without_trailing_slash.len() ..].starts_with('/'))
 }
 /// Returns `shv_path` without `to_strip` prefix.
 ///
