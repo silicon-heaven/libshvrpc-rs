@@ -1,13 +1,16 @@
-use std::cmp::min;
-use std::io::{BufReader};
+use crate::framerw::{
+    format_peer_id, read_bytes, serialize_meta, FrameData, FrameReader, FrameReaderPrivate,
+    FrameWriter, RawData, ReceiveFrameError,
+};
+use crate::rpcframe::RpcFrame;
+use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
-use crate::rpcframe::{RpcFrame};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use log::*;
-use shvproto::{ChainPackReader, ChainPackWriter, ReadError};
-use crate::framerw::{FrameWriter, serialize_meta, ReceiveFrameError, read_bytes, RawData, FrameData, FrameReaderPrivate, FrameReader, format_peer_id};
 use shvproto::reader::ReadErrorReason;
-use crate::rpcmessage::PeerId;
+use shvproto::{ChainPackReader, ChainPackWriter, ReadError};
+use std::cmp::min;
+use std::io::BufReader;
 
 pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
     peer_id: PeerId,
@@ -39,13 +42,17 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         };
         self.bytes_to_read = 0;
     }
-    async fn get_raw_bytes(&mut self, count: usize, copy_to_frame_data: bool) -> Result<&[u8], ReceiveFrameError> {
+    async fn get_raw_bytes(
+        &mut self,
+        count: usize,
+        copy_to_frame_data: bool,
+    ) -> Result<&[u8], ReceiveFrameError> {
         if self.raw_data.is_empty() {
             let with_timeout = self.bytes_to_read != 0;
             read_bytes(&mut self.reader, &mut self.raw_data, with_timeout).await?;
         }
         let n = min(count, self.raw_data.bytes_available());
-        let data = &self.raw_data.data[self.raw_data.consumed .. self.raw_data.consumed + n];
+        let data = &self.raw_data.data[self.raw_data.consumed..self.raw_data.consumed + n];
         self.raw_data.consumed += n;
         if copy_to_frame_data {
             self.frame_data.data.extend_from_slice(data);
@@ -65,12 +72,16 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                 let mut buffrd = BufReader::new(&lendata[..]);
                 let mut rd = ChainPackReader::new(&mut buffrd);
                 match rd.read_uint_data() {
-                    Ok(len) => { break len as usize }
+                    Ok(len) => break len as usize,
                     Err(err) => {
-                        let ReadError{reason, .. } = err;
+                        let ReadError { reason, .. } = err;
                         match reason {
-                            ReadErrorReason::UnexpectedEndOfStream => { continue }
-                            ReadErrorReason::InvalidCharacter => { return Err(ReceiveFrameError::FrameError("Cannot read frame length, invalid byte received".into())) }
+                            ReadErrorReason::UnexpectedEndOfStream => continue,
+                            ReadErrorReason::InvalidCharacter => {
+                                return Err(ReceiveFrameError::FrameError(
+                                    "Cannot read frame length, invalid byte received".into(),
+                                ))
+                            }
                         }
                     }
                 };
@@ -92,7 +103,9 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
-    fn peer_id(&self) -> PeerId { return self.peer_id }
+    fn peer_id(&self) -> PeerId {
+        self.peer_id
+    }
     async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError> {
         self.get_frame_data_bytes().await
     }
@@ -100,7 +113,9 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
     fn frame_data_ref_mut(&mut self) -> &mut FrameData {
         &mut self.frame_data
     }
-    fn frame_data_ref(&self) -> &FrameData { &self.frame_data }
+    fn frame_data_ref(&self) -> &FrameData {
+        &self.frame_data
+    }
 
     fn reset_frame_data(&mut self) {
         self.reset_frame()
@@ -108,8 +123,12 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
-    fn peer_id(&self) -> PeerId { return self.peer_id }
-    fn set_peer_id(&mut self, peer_id: PeerId) { self.peer_id = peer_id }
+    fn peer_id(&self) -> PeerId {
+        self.peer_id
+    }
+    fn set_peer_id(&mut self, peer_id: PeerId) {
+        self.peer_id = peer_id
+    }
     async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
         self.receive_frame_private().await
     }
@@ -145,17 +164,18 @@ pub struct StreamFrameWriter<W: AsyncWrite + Unpin + Send> {
 }
 impl<W: AsyncWrite + Unpin + Send> StreamFrameWriter<W> {
     pub fn new(writer: W) -> Self {
-        Self {
-            peer_id: 0,
-            writer,
-        }
+        Self { peer_id: 0, writer }
     }
 }
 
 #[async_trait]
 impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
-    fn peer_id(&self) -> PeerId { return self.peer_id }
-    fn set_peer_id(&mut self, peer_id: PeerId) { self.peer_id = peer_id }
+    fn peer_id(&self) -> PeerId {
+        self.peer_id
+    }
+    fn set_peer_id(&mut self, peer_id: PeerId) {
+        self.peer_id = peer_id
+    }
     async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()> {
         log!(target: "RpcMsg", Level::Debug, "S<== {} {}", format_peer_id(self.peer_id), &frame.to_rpcmesage().unwrap_or_default());
         let meta_data = serialize_meta(&frame)?;
@@ -191,16 +211,17 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
 
 #[cfg(all(test, feature = "async-std"))]
 mod test {
-    use crate::framerw::test::Chunks;
-use crate::framerw::test::from_hex;
     use super::*;
+    use crate::framerw::test::from_hex;
+    use crate::framerw::test::Chunks;
     use crate::util::{hex_array, hex_dump};
-    use crate::{RpcMessage};
+    use crate::RpcMessage;
     use async_std::io::BufWriter;
     fn init_log() {
         let _ = env_logger::builder()
             //.filter(None, LevelFilter::Debug)
-            .is_test(true).try_init();
+            .is_test(true)
+            .try_init();
     }
     async fn frame_to_data(frame: &RpcFrame) -> Vec<u8> {
         let mut buff: Vec<u8> = vec![];
@@ -323,28 +344,22 @@ use crate::framerw::test::from_hex;
         let meta_end = 0x19;
         let mut data = data1.clone();
         data.append(&mut data1.clone());
-            for chunks in [
+        for chunks in [
+            vec![data1.clone(), data1.clone()],
             vec![
-                data1.clone(),
-                data1.clone(),
-            ],
-            vec![
-                data[0 .. 1].to_vec(),
-                data[1 .. 2].to_vec(),
-                data[2 .. meta_start].to_vec(),
-                data[meta_start .. meta_end].to_vec(),
-                data[meta_end .. data1_len + 1].to_vec(),
-                data[data1_len + 1 ..].to_vec(),
+                data[0..1].to_vec(),
+                data[1..2].to_vec(),
+                data[2..meta_start].to_vec(),
+                data[meta_start..meta_end].to_vec(),
+                data[meta_end..data1_len + 1].to_vec(),
+                data[data1_len + 1..].to_vec(),
             ],
         ] {
             let mut rd = StreamFrameReader::new(Chunks { chunks });
-            for _ in 0 .. 2 {
+            for _ in 0..2 {
                 let frame = rd.receive_frame().await;
                 assert!(frame.is_ok());
             }
-        };
+        }
     }
 }
-
-
-
