@@ -21,11 +21,11 @@ pub fn join_path(p1: &str, p2: &str) -> String {
     if p1.is_empty() && p2.is_empty() {
         "".to_string()
     } else if p1.is_empty() {
-        p2.to_string()
+        p2.trim_matches('/').to_string()
     } else if p2.is_empty() {
-        p1.to_string()
+        p1.trim_matches('/').to_string()
     } else {
-        p1.to_string() + "/" + p2
+        p1.trim_matches('/').to_string() + "/" + p2.trim_matches('/')
     }
 }
 pub fn starts_with_path(shv_path: &str, with_path: &str) -> bool {
