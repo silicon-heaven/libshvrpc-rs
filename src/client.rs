@@ -1,10 +1,11 @@
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
-use duration_str::parse;
+use duration_str::HumanFormat;
 use log::{info};
 use serde::{Deserialize, Serialize};
 use shvproto::RpcValue;
+use url::Url;
 use crate::{RpcMessage};
 use crate::framerw::{FrameReader, FrameWriter};
 use crate::util::sha1_password_hash;
@@ -101,16 +102,51 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
         Some(client_id) => { Ok(client_id.as_i32()) }
     }
 }
-fn default_heartbeat() -> String { "1m".into() }
+
+fn default_heartbeat() -> Duration { Duration::from_secs(60) }
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct ClientConfig {
-    pub url: String,
+    pub url: Url,
     pub device_id: Option<String>,
     pub mount: Option<String>,
-    #[serde(default = "default_heartbeat")]
-    pub heartbeat_interval: String,
-    pub reconnect_interval: Option<String>,
+    #[serde(
+        default = "default_heartbeat",
+        deserialize_with = "duration_str::deserialize_duration",
+        serialize_with = "serialize_duration"
+    )]
+    pub heartbeat_interval: Duration,
+    #[serde(
+        default,
+        deserialize_with = "duration_str::deserialize_option_duration",
+        serialize_with = "serialize_option_duration"
+    )]
+    pub reconnect_interval: Option<Duration>,
 }
+
+fn serialize_duration<S>(
+    duration: &Duration,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    duration.human_format().serialize(serializer)
+}
+
+fn serialize_option_duration<S>(
+    duration_opt: &Option<Duration>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    duration_opt
+        .map(|duration| duration.human_format())
+        .serialize(serializer)
+}
+
 impl ClientConfig {
     pub fn from_file(file_name: &str) -> crate::Result<Self> {
         let content = fs::read_to_string(file_name)?;
@@ -141,18 +177,46 @@ impl ClientConfig {
         }
         Ok(config)
     }
-    pub fn heartbeat_interval_duration(&self) -> crate::Result<std::time::Duration> {
-        Ok(parse(&self.heartbeat_interval)?)
-    }
 }
+
 impl Default for ClientConfig {
     fn default() -> Self {
         Self {
-            url: "tcp://localhost:3755".to_string(),
+            url: Url::parse("tcp://localhost:3755").expect("BUG: default URL should be valid"),
             device_id: None,
             mount: None,
             heartbeat_interval: default_heartbeat(),
             reconnect_interval: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use url::Url;
+
+    use super::ClientConfig;
+
+    #[test]
+    fn client_config_serde() {
+        let input_yaml =
+r#"
+url: tcp:://user@localhost:3755?password=secret
+heartbeat_interval: 1m
+reconnect_interval: 3s
+"#;
+
+        let config = ClientConfig {
+            url: Url::parse("tcp:://user@localhost:3755?password=secret").unwrap(),
+            device_id: None,
+            mount: None,
+            heartbeat_interval: Duration::from_secs(60),
+            reconnect_interval: Some(Duration::from_secs(3)),
+        };
+
+        let parsed_config: ClientConfig = serde_yaml::from_str(input_yaml).expect("Cannot deserialize");
+        assert_eq!(config, parsed_config);
     }
 }
