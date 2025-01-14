@@ -270,7 +270,7 @@ pub trait RpcMessageMetaTags {
             return self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(ids[0] as PeerId)));
         }
         let lst: List = ids.iter().map(|v| RpcValue::from(*v)).collect();
-        return self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(lst)));
+        self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(lst)))
     }
     fn push_caller_id(&mut self, id: PeerId) -> &mut Self::Target {
         let mut ids = self.caller_ids();
@@ -461,7 +461,7 @@ impl Serialize for RpcMessage {
 
 struct RpcMessageVisitor;
 
-impl<'de> Visitor<'de> for RpcMessageVisitor {
+impl Visitor<'_> for RpcMessageVisitor {
     type Value = RpcMessage;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
