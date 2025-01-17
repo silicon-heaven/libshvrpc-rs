@@ -74,10 +74,7 @@ impl AccessLevel {
 }
 impl From<&str> for AccessLevel {
     fn from(value: &str) -> Self {
-        match Self::from_str(value) {
-            None => { Self::Browse }
-            Some(acc) => { acc }
-        }
+        Self::from_str(value).unwrap_or(Self::Browse)
     }
 }
 
@@ -210,7 +207,7 @@ impl From<DirAttribute> for &str {
 }
 impl From<DirAttribute> for String {
     fn from(val: DirAttribute) -> Self {
-        <DirAttribute as Into<&str>>::into(val).to_string()
+        <&str>::from(val).to_string()
     }
 }
 
