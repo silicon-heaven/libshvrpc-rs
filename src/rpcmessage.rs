@@ -72,9 +72,15 @@ impl RpcMessage {
     pub fn to_frame(&self) -> crate::Result<RpcFrame> {
         RpcFrame::from_rpcmessage(self)
     }
-    pub fn param(&self) -> Option<&RpcValue> { self.key(Key::Params as i32) }
-    pub fn set_param(&mut self, rv: impl Into<RpcValue>) -> &mut Self  { self.set_param_opt(Some(rv.into())) }
-    pub fn set_param_opt(&mut self, rv: Option<RpcValue>) -> &mut Self  { self.set_key(Key::Params, rv); self }
+    pub fn param(&self) -> Option<&RpcValue> {
+        self.key(Key::Params as i32)
+    }
+    pub fn set_param(&mut self, rv: impl Into<RpcValue>) -> &mut Self {
+        self.set_param_opt(Some(rv.into()))
+    }
+    pub fn set_param_opt(&mut self, rv: Option<RpcValue>) -> &mut Self {
+        self.set_key(Key::Params, rv)
+    }
     pub fn result(&self) -> Result<&RpcValue, RpcError> {
         match self.key(Key::Result as i32) {
             None => {
@@ -89,17 +95,15 @@ impl RpcMessage {
     pub fn set_result(&mut self, rv: impl Into<RpcValue>) -> &mut Self { self.set_key(Key::Result, Some(rv.into())); self }
     pub fn set_result_or_error(&mut self, result: Result<RpcValue, RpcError>) -> &mut Self {
         match result {
-            Ok(val) => { self.set_result(val) }
-            Err(err) => { self.set_error(err) }
-        };
-        self
+            Ok(val) => self.set_result(val),
+            Err(err) => self.set_error(err),
+        }
     }
     pub fn error(&self) -> Option<RpcError> {
         self.key(Key::Error as i32).and_then(RpcError::from_rpcvalue)
     }
     pub fn set_error(&mut self, err: RpcError) -> &mut Self {
-        self.set_key(Key::Error, Some(err.to_rpcvalue()));
-        self
+        self.set_key(Key::Error, Some(err.to_rpcvalue()))
     }
     pub fn is_success(&self) -> bool {
         self.result().is_ok()
@@ -116,15 +120,12 @@ impl RpcMessage {
     fn set_tag<Idx>(&mut self, key: Idx, rv: Option<RpcValue>) -> &mut Self
         where Idx: GetIndex
     {
-        if let Some(mm) = self.0.meta_mut(){
-            match rv {
-                Some(rv) => { mm.insert(key, rv); },
-                None => { mm.remove(key); },
-            };
-            self
-        } else {
-            panic!("Not RpcMessage")
-        }
+        let mm = self.0.meta_mut().expect("Not an RpcMessage");
+        match rv {
+            Some(rv) => { mm.insert(key, rv); }
+            None => { mm.remove(key); }
+        };
+        self
     }
     fn key(&self, key: i32) -> Option<&RpcValue> {
         if let Value::IMap(m) = self.0.value() {
@@ -140,7 +141,7 @@ impl RpcMessage {
             };
             self
         } else {
-            panic!("Not RpcMessage")
+            panic!("Not an RpcMessage")
         }
     }
     pub fn new_request(shvpath: &str, method: &str, param: Option<RpcValue>) -> Self {
@@ -148,17 +149,17 @@ impl RpcMessage {
     }
     pub fn new_signal(shvpath: &str, method: &str, param: Option<RpcValue>) -> Self {
         let mut msg = Self::default();
-        msg.set_shvpath(shvpath);
-        msg.set_method(method);
-        msg.set_param_opt(param);
+        msg.set_shvpath(shvpath)
+            .set_method(method)
+            .set_param_opt(param);
         msg
     }
     pub fn new_signal_with_source(shvpath: &str, method: &str, source: &str, param: Option<RpcValue>) -> Self {
         let mut msg = Self::default();
-        msg.set_shvpath(shvpath);
-        msg.set_method(method);
-        msg.set_source(source);
-        msg.set_param_opt(param);
+        msg.set_shvpath(shvpath)
+            .set_method(method)
+            .set_source(source)
+            .set_param_opt(param);
         msg
     }
     pub fn create_request_with_id(rq_id: RqId, shvpath: &str, method: &str, param: Option<RpcValue>) -> Self {
@@ -177,8 +178,7 @@ impl RpcMessage {
         Self::prepare_response_from_meta(self.as_rpcvalue().meta())
     }
     pub fn prepare_response_from_meta(meta: &MetaMap) -> Result<Self, &'static str> {
-        let meta = RpcFrame::prepare_response_meta(meta)?;
-        Ok(Self::from_meta(meta))
+        RpcFrame::prepare_response_meta(meta).map(Self::from_meta)
     }
 }
 impl Default for RpcMessage {
@@ -249,17 +249,14 @@ pub trait RpcMessageMetaTags {
 
     fn caller_ids(&self) -> Vec<PeerId> {
         let t = self.tag(Tag::CallerIds as i32);
-        match t {
+        match t.map(RpcValue::value) {
             None => Vec::new(),
-            Some(rv) => {
-                if rv.is_int() {
-                    return vec![rv.as_int() as PeerId];
-                }
-                if rv.is_list() {
-                    return rv.as_list().iter().map(|v| v.as_int() as PeerId).collect();
-                }
-                vec![]
-            },
+            Some(Value::Int(val)) => vec![*val as PeerId],
+            Some(Value::List(val)) =>
+                val.iter()
+                .map(|v| v.as_int() as PeerId)
+                .collect(),
+            _ => vec![],
         }
     }
     fn set_caller_ids(&mut self, ids: &[PeerId]) -> &mut Self::Target {
@@ -279,16 +276,11 @@ pub trait RpcMessageMetaTags {
     }
     fn pop_caller_id(&mut self) -> Option<PeerId> {
         let mut ids = self.caller_ids();
-        let id = ids.pop();
-        match id {
-            Some(id) => {
-                self.set_caller_ids(&ids);
-                Some(id)
-            }
-            None => {
-                None
-            }
+        let caller_id = ids.pop();
+        if caller_id.is_some() {
+            self.set_caller_ids(&ids);
         }
+        caller_id
     }
 }
 impl RpcMessageMetaTags for RpcMessage {
@@ -310,15 +302,10 @@ impl RpcMessageMetaTags for MetaMap {
     }
     fn set_tag(&mut self, id: i32, val: Option<RpcValue>) -> &mut Self::Target {
         match val {
-            Some(rv) => {
-                self.insert(id, rv);
-                self
-            }
-            None => {
-                self.remove(id);
-                self
-            }
+            Some(rv) => { self.insert(id, rv); }
+            None => { self.remove(id); }
         }
+        self
     }
 }
 
