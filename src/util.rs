@@ -1,9 +1,10 @@
 use std::cmp::min;
 use glob::Pattern;
-use log::{LevelFilter};
 use sha1::Sha1;
 use sha1::Digest;
 use url::Url;
+
+pub use shvproto::util::parse_log_verbosity;
 
 pub fn sha1_hash(data: &[u8]) -> Vec<u8> {
     let mut hasher = Sha1::new();
@@ -62,27 +63,6 @@ pub fn strip_prefix_path<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
     } else {
         None
     }
-}
-
-pub fn parse_log_verbosity<'a>(verbosity: &'a str, module_path: &'a str) -> Vec<(&'a str, LevelFilter)> {
-    let mut ret: Vec<(&str, LevelFilter)> = Vec::new();
-    for module_level_str in verbosity.split(',') {
-        let module_level: Vec<_> = module_level_str.split('=').collect();
-        // Using `get(0)` looks more consistent along with the following `get(1)`
-        #[allow(clippy::get_first)]
-        let name = *module_level.get(0).unwrap_or(&".");
-        let level = *module_level.get(1).unwrap_or(&"D");
-        let module = if name == "." { module_path } else { name };
-        let level = match level {
-            "E" => LevelFilter::Error,
-            "W" => LevelFilter::Warn,
-            "I" => LevelFilter::Info,
-            "D" => LevelFilter::Debug,
-            _ => LevelFilter::Trace,
-        };
-        ret.push((module, level));
-    }
-    ret
 }
 
 pub fn login_from_url(url: &Url) -> (String, String) {
