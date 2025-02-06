@@ -14,21 +14,18 @@ pub struct Glob {
 impl Glob {
     pub fn match_shv_ri(&self, shv_ri: &ShvRI) -> bool {
         // if method is granted => signal is granted as well
-        if self.path.matches(shv_ri.path()) && self.method.matches(shv_ri.method()) {
-            // path and method match
-            if let Some(glob_signal_pattern) = &self.signal {
-                // glob has signal defined
-                if let Some(ri_signal) = shv_ri.signal() {
-                    // RI has signal defined
-                    return glob_signal_pattern.matches(ri_signal);
-                } else {
-                    return false;
-                }
-            } else {
-                return true;
-            }
+        if !self.path.matches(shv_ri.path()) {
+            return false;
         }
-        false
+        if !self.method.matches(shv_ri.method()) {
+            return false;
+        }
+        // path and method match
+        match (&self.signal, shv_ri.signal()) {
+            (Some(glob_signal_pattern), Some(ri_signal)) => glob_signal_pattern.matches(ri_signal),
+            (Some(_glob_signal_pattern), None) => false,
+            _ => true,
+        }
     }
     pub fn as_str(&self) -> &str {
         self.ri.as_str()
@@ -79,15 +76,12 @@ impl ShvRI {
         self.signal_sep_ix.is_some()
     }
     pub fn to_glob(&self) -> Result<Glob, String> {
-        let path = self.path();
-        let method = self.method();
-        let signal = self.signal();
         Ok(Glob {
-            path: Pattern::new(path)
+            path: Pattern::new(self.path())
                 .map_err(|e| format!("Parse path glob: '{}' error: {}", self, e))?,
-            method: Pattern::new(method)
+            method: Pattern::new(self.method())
                 .map_err(|e| format!("Parse method glob: '{}' error: {}", self, e))?,
-            signal: if let Some(signal) = signal {
+            signal: if let Some(signal) = self.signal() {
                 Some(
                     Pattern::new(signal)
                         .map_err(|e| format!("Parse signal glob: '{}' error: {}", self, e))?,
@@ -95,7 +89,7 @@ impl ShvRI {
             } else {
                 None
             },
-            ri: ShvRI::from_path_method_signal(path, method, signal)?,
+            ri: self.clone(),
         })
     }
     pub fn as_str(&self) -> &str {
