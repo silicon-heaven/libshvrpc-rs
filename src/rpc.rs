@@ -27,6 +27,9 @@ impl Glob {
             _ => true,
         }
     }
+    pub fn as_ri(&self) -> &ShvRI {
+        &self.ri
+    }
     pub fn as_str(&self) -> &str {
         self.ri.as_str()
     }
