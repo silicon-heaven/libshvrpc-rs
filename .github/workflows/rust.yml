@@ -10,6 +10,10 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
 
+permissions:
+  # For syyyr/rust-pycobertura-action
+  pull-requests: write
+
 jobs:
   build:
 
@@ -23,3 +27,12 @@ jobs:
       run: cargo build --verbose --all-features
     - name: Run tests
       run: cargo test --verbose --all-features -- --test-threads=1
+
+  coverage:
+    name: Code coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate coverage
+        uses: syyyr/rust-pycobertura-action@v1.1.1
+        with:
+          project_name: libshvrpc
