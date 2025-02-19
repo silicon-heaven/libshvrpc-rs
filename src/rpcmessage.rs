@@ -16,6 +16,7 @@ static G_RPC_REQUEST_COUNT: AtomicI64 = AtomicI64::new(0);
 
 pub type RqId = i64;
 pub type PeerId = i64;
+pub type SeqNo = u64;
 
 // backward compatibility
 pub type CliId = PeerId;
@@ -281,6 +282,12 @@ pub trait RpcMessageMetaTags {
             self.set_caller_ids(&ids);
         }
         caller_id
+    }
+    fn seqno(&self) -> Option<SeqNo> {
+        self.tag(Tag::SeqNo as i32).map(RpcValue::as_u64)
+    }
+    fn set_seqno(&mut self, n: SeqNo) -> &mut Self::Target {
+        self.set_tag(Tag::SeqNo as i32, Some(RpcValue::from(n)))
     }
 }
 impl RpcMessageMetaTags for RpcMessage {
