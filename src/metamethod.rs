@@ -101,7 +101,7 @@ impl TryFrom<&RpcValue> for AccessLevel {
     type Error = String;
     fn try_from(value: &RpcValue) -> Result<Self, Self::Error> {
         use shvproto::rpcvalue::Value;
-        match value.value() {
+        match &value.value {
             Value::Int(val) => (*val as i32).try_into(),
             Value::String(val) =>
                 AccessLevel::from_str(val.as_str())

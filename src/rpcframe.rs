@@ -1,5 +1,5 @@
 use std::fmt;
-use std::io::{BufReader};
+use std::io::BufReader;
 use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, RpcValue};
 use shvproto::writer::Writer;
 use shvproto::reader::Reader;
@@ -33,9 +33,9 @@ impl RpcFrame {
         let mut data = Vec::new();
         {
             let mut wr = ChainPackWriter::new(&mut data);
-            wr.write_value(msg.as_rpcvalue().value())?;
+            wr.write_value(&msg.as_rpcvalue().value)?;
         }
-        let meta = msg.as_rpcvalue().meta().clone();
+        let meta = *msg.as_rpcvalue().meta.clone().unwrap_or_default();
         Ok(RpcFrame { protocol: Protocol::ChainPack, meta, data })
     }
     pub fn to_rpcmesage(&self) -> crate::Result<RpcMessage> {
