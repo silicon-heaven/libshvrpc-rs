@@ -265,11 +265,17 @@ mod tests {
             ("test/device/track:ls:lsmod", "test/**:get:*chng", false),
             ("test/device/track:ls:lsmod", "test/*:ls:lsmod", true),
             ("test/device/track:ls:lsmod", "test/**:get", false),
+
+            ("test/device/track:*:chng", "test/device/*:*:chng", true),
+            ("test/device/track:*:chng", "test/device/track:*:chng", true),
+            ("test/device/track:*:chng", "test/device/track:*:chng", true),
+
+            ("value:*:chng", "value:*:*", true),
         ] {
             // println!("{path} {ri}");
             let glob = ShvRI::try_from(ri)?.to_glob()?;
             let m = glob.match_shv_ri(&ShvRI::try_from(path)?);
-            assert_eq!(m, is_match);
+            assert_eq!(m, is_match, "glob: {}, ri: {path}, matches: {m}, expect: {is_match}", glob.as_str());
         }
         Ok(())
     }
