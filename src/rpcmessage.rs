@@ -39,19 +39,19 @@ pub enum Tag {
 }
 pub enum Key {Params = 1, Result, Error, ErrorCode, ErrorMessage, MAX }
 
+static EMPTY_METAMAP: std::sync::OnceLock<MetaMap> = std::sync::OnceLock::new();
+
 #[derive(Clone, Debug)]
 pub struct RpcMessage (RpcValue);
 impl RpcMessage {
-    pub fn meta(&self) -> &MetaMap {
-        self.0.meta()
-    }
     pub fn from_meta(meta: MetaMap) -> Self {
-        RpcMessage(RpcValue::from(IMap::new()).set_meta(Some(meta)))
+        RpcMessage(RpcValue::new(IMap::new().into(), Some(meta)))
     }
     pub fn from_rpcvalue(rv: RpcValue) -> Result<Self, &'static str> {
-        if rv.meta().is_empty() {
+        if rv.meta.is_none() {
             return Err("Meta is empty.");
         }
+        // FIXME: Include a check for mandatory meta keys as defined in SHV specification
         if rv.is_imap() {
             return Ok(Self(rv))
         }
@@ -113,15 +113,24 @@ impl RpcMessage {
         self.error().is_some()
     }
 
+    pub fn meta(&self) -> &MetaMap {
+        self.0.meta.as_ref().map_or_else(
+            || EMPTY_METAMAP.get_or_init(MetaMap::new),
+            <Box<MetaMap>>::as_ref
+        )
+    }
+    fn meta_mut(&mut self) -> Option<&mut MetaMap> {
+        self.0.meta.as_mut().map(<Box<MetaMap>>::as_mut)
+    }
     fn tag<Idx>(&self, key: Idx) -> Option<&RpcValue>
         where Idx: GetIndex
     {
-        self.0.meta().get(key)
+        self.meta().get(key)
     }
     fn set_tag<Idx>(&mut self, key: Idx, rv: Option<RpcValue>) -> &mut Self
         where Idx: GetIndex
     {
-        let mm = self.0.meta_mut().expect("Not an RpcMessage");
+        let mm = self.meta_mut().expect("Not an RpcMessage");
         match rv {
             Some(rv) => { mm.insert(key, rv); }
             None => { mm.remove(key); }
@@ -129,13 +138,13 @@ impl RpcMessage {
         self
     }
     fn key(&self, key: i32) -> Option<&RpcValue> {
-        if let Value::IMap(m) = self.0.value() {
+        if let Value::IMap(m) = &self.0.value {
             return m.get(&key);
         }
         None
     }
     fn set_key(&mut self, key: Key, rv: Option<RpcValue>) -> &mut Self {
-        if let Value::IMap(m) = self.0.value_mut() {
+        if let Value::IMap(m) = &mut self.0.value {
             match rv {
                 Some(rv) => m.insert(key as i32, rv),
                 None => m.remove(&(key as i32)),
@@ -176,7 +185,7 @@ impl RpcMessage {
         msg
     }
     pub fn prepare_response(&self) -> Result<Self, &'static str> {
-        Self::prepare_response_from_meta(self.as_rpcvalue().meta())
+        Self::prepare_response_from_meta(self.meta())
     }
     pub fn prepare_response_from_meta(meta: &MetaMap) -> Result<Self, &'static str> {
         RpcFrame::prepare_response_meta(meta).map(Self::from_meta)
@@ -250,7 +259,7 @@ pub trait RpcMessageMetaTags {
 
     fn caller_ids(&self) -> Vec<PeerId> {
         let t = self.tag(Tag::CallerIds as i32);
-        match t.map(RpcValue::value) {
+        match t.map(|rv| &rv.value) {
             None => Vec::new(),
             Some(Value::Int(val)) => vec![*val as PeerId],
             Some(Value::List(val)) =>

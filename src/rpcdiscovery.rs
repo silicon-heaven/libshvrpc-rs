@@ -12,7 +12,7 @@ pub enum LsParam {
 
 impl From<&RpcValue> for LsParam {
     fn from(value: &RpcValue) -> Self {
-        match value.value() {
+        match &value.value {
             shvproto::Value::String(dirname) => LsParam::Exists(String::clone(dirname)),
             _ => LsParam::List,
         }
@@ -65,7 +65,7 @@ impl TryFrom<LsResult> for Vec<String> {
 impl TryFrom<&RpcValue> for LsResult {
     type Error = String;
     fn try_from(rpcvalue: &RpcValue) -> Result<Self, Self::Error> {
-        match rpcvalue.value() {
+        match &rpcvalue.value {
             shvproto::Value::Bool(false) | shvproto::Value::Null => Ok(LsResult::Exists(false)),
             shvproto::Value::Bool(true) => Ok(LsResult::Exists(true)),
             shvproto::Value::List(_) => Ok(LsResult::List(rpcvalue.try_into()?)),
@@ -90,7 +90,7 @@ pub enum DirParam {
 
 impl From<&RpcValue> for DirParam {
     fn from(rpcvalue: &RpcValue) -> Self {
-        match rpcvalue.value() {
+        match &rpcvalue.value {
             shvproto::Value::String(param) => DirParam::Exists(param.to_string()),
             shvproto::Value::Bool(true) => DirParam::Full,
             _ => DirParam::Brief,
@@ -129,7 +129,7 @@ pub struct MethodInfo {
 impl TryFrom<&RpcValue> for MethodInfo {
     type Error = String;
     fn try_from(value: &RpcValue) -> Result<Self, Self::Error> {
-        match value.value() {
+        match &value.value {
             shvproto::Value::Map(map) => {
                 let get_key = |key: DirAttribute| {
                     map.get(key.into()).ok_or_else(|| format!("Missing MethodInfo key `{}` in Map", <&str>::from(key)))
@@ -164,7 +164,7 @@ impl TryFrom<&RpcValue> for MethodInfo {
                         for (key, val) in signals_map.into_iter() {
                             res.insert(
                                 key.to_owned(),
-                                match val.value() {
+                                match &val.value {
                                     shvproto::Value::Null => Ok(None),
                                     shvproto::Value::String(val) => Ok(Some(val.to_string())),
                                     _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
@@ -211,7 +211,7 @@ impl TryFrom<&RpcValue> for MethodInfo {
                         for (key, val) in signals_map.into_iter() {
                             res.insert(
                                 key.to_owned(),
-                                match val.value() {
+                                match &val.value {
                                     shvproto::Value::Null => Ok(None),
                                     shvproto::Value::String(val) => Ok(Some(val.to_string())),
                                     _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
@@ -258,7 +258,7 @@ impl TryFrom<DirResult> for Vec<MethodInfo> {
 impl TryFrom<&RpcValue> for DirResult {
     type Error = String;
     fn try_from(rpcvalue: &RpcValue) -> Result<Self, Self::Error> {
-        match rpcvalue.value() {
+        match &rpcvalue.value {
             shvproto::Value::Bool(false) | shvproto::Value::Null => Ok(DirResult::Exists(false)),
             shvproto::Value::Bool(true) => Ok(DirResult::Exists(true)),
             shvproto::Value::Map(_) | shvproto::Value::IMap(_) =>
