@@ -81,6 +81,7 @@ pub(crate) trait FrameReaderPrivate {
                 self.get_bytes().await?;
             }
             if self.frame_data_ref().meta.is_none() {
+                assert!(!self.frame_data_ref().data.is_empty());
                 let proto = self.frame_data_ref().data[0];
                 if proto == Protocol::ResetSession as u8 {
                     return Err(ReceiveFrameError::StreamError("Reset session message received.".into()));
