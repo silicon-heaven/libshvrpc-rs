@@ -86,12 +86,7 @@ impl RpcMessage {
     pub fn result(&self) -> Result<&RpcValue, RpcError> {
         match self.ival(Key::Error as i32) {
             None => {
-                match self.ival(Key::Result as i32) {
-                    None => {
-                        Ok(STATIC_NULL_RPCVALUE.get_or_init(RpcValue::null))
-                    }
-                    Some(rv) => { Ok(rv) }
-                }
+                Ok(self.ival(Key::Result as i32).unwrap_or(STATIC_NULL_RPCVALUE.get_or_init(RpcValue::null)))
             }
             Some(err) => {
                 Err(RpcError::from_rpcvalue(err)

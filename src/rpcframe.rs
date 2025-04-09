@@ -29,6 +29,13 @@ impl RpcFrame {
     pub fn new(protocol: Protocol, meta: MetaMap, data: Vec<u8>) -> RpcFrame {
         RpcFrame { protocol, meta, data }
     }
+    pub fn new_reset_session() -> Self {
+        Self {
+            protocol: Protocol::ResetSession,
+            meta: MetaMap::new(),
+            data: vec![],
+        }
+    }
     pub fn from_rpcmessage(msg: &RpcMessage) -> crate::Result<RpcFrame> {
         let mut data = Vec::new();
         {

@@ -162,11 +162,7 @@ pub trait FrameWriter {
     fn peer_id(&self) -> PeerId;
     fn set_peer_id(&mut self, peer_id: PeerId);
     async fn send_reset_session(&mut self) -> crate::Result<()> {
-        self.send_frame(RpcFrame{
-            protocol: Protocol::ResetSession,
-            meta: MetaMap::new(),
-            data: vec![],
-        }).await
+        self.send_frame(RpcFrame::new_reset_session()).await
     }
     async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()>;
     async fn send_message(&mut self, msg: RpcMessage) -> crate::Result<()> {
