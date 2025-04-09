@@ -341,6 +341,7 @@ mod test {
     use crate::util::{hex_string};
     use crate::RpcMessage;
     use async_std::io::BufWriter;
+    use crate::rpcframe::Protocol;
 
     fn init_log() {
         let _ = env_logger::builder()
@@ -373,6 +374,37 @@ mod test {
                 let read_data = rd.read_escaped().await.unwrap();
                 assert_eq!(&read_data, data);
             }
+        }
+    }
+
+    #[async_std::test]
+    async fn test_write_reset_session_frame() {
+        init_log();
+        let reset_frame_data = [STX, Protocol::ResetSession as u8, ETX];
+        {
+            let frame = RpcFrame::new_reset_session();
+            let mut buff: Vec<u8> = vec![];
+            let buffwr = BufWriter::new(&mut buff);
+            {
+                let mut wr = SerialFrameWriter::new(buffwr).with_crc_check(false);
+                wr.send_frame(frame.clone()).await.unwrap();
+            }
+            assert_eq!(&buff[..], reset_frame_data);
+        }
+        {
+            let mut crc_digest = CRC_32.digest();
+            crc_digest.update(&reset_frame_data[1 .. 2]);
+            let crc = crc_digest.finalize();
+            assert_eq!(crc, 0xd202ef8d);
+            let frame = RpcFrame::new_reset_session();
+            let mut buff: Vec<u8> = vec![];
+            let buffwr = BufWriter::new(&mut buff);
+            {
+                let mut wr = SerialFrameWriter::new(buffwr).with_crc_check(true);
+                wr.send_frame(frame.clone()).await.unwrap();
+            }
+            assert_eq!(&buff[0 .. reset_frame_data.len()], reset_frame_data);
+            assert_eq!(&buff[reset_frame_data.len() ..], [0xd2, 0x02, 0xef, 0x8d]);
         }
     }
 
