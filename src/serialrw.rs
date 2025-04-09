@@ -338,7 +338,7 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
 mod test {
     use super::*;
     use crate::framerw::test::from_hex;
-    use crate::util::{hex_dump, hex_string};
+    use crate::util::{hex_string};
     use crate::RpcMessage;
     use async_std::io::BufWriter;
 

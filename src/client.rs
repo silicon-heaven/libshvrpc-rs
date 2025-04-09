@@ -9,6 +9,7 @@ use url::Url;
 use crate::{RpcMessage};
 use crate::framerw::{FrameReader, FrameWriter};
 use crate::util::sha1_password_hash;
+use log::debug;
 
 #[derive(Copy, Clone, Debug)]
 pub enum LoginType {
@@ -49,7 +50,7 @@ impl Default for LoginParams {
             device_id: "".to_string(),
             mount_point: "".to_string(),
             heartbeat_interval: Duration::from_secs(60),
-            reset_session: false,
+            reset_session: true,
         }
     }
 }
@@ -63,7 +64,7 @@ impl LoginParams {
         login.insert("type".into(), RpcValue::from(self.login_type.to_str()));
         map.insert("login".into(), RpcValue::from(login));
         let mut options = shvproto::Map::new();
-        options.insert("idleWatchDogTimeOut".into(), RpcValue::from(self.heartbeat_interval.as_secs() * 3));
+        options.insert("idleWatchDogTimeOut".into(), RpcValue::from((self.heartbeat_interval.as_secs() * 3) as i32));
         let mut device = shvproto::Map::new();
         if !self.device_id.is_empty() {
             device.insert("deviceId".into(), RpcValue::from(&self.device_id));
@@ -80,9 +81,12 @@ impl LoginParams {
 
 pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &mut (dyn FrameWriter + Send), login_params: &LoginParams) -> crate::Result<i32>
 {
+    debug!("Login sequence started");
     if login_params.reset_session {
+        debug!("\t reset session");
         frame_writer.send_reset_session().await?;
     }
+    debug!("\t send hello");
     let rq = RpcMessage::new_request("", "hello", None);
     frame_writer.send_message(rq).await?;
     let resp = frame_reader.receive_message().await?;
@@ -91,15 +95,25 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
     }
     let nonce = resp.result()?.as_map()
         .get("nonce").ok_or("Bad nonce")?.as_str();
+    debug!("\t nonce received: {}", nonce);
     let hash = sha1_password_hash(login_params.password.as_bytes(), nonce.as_bytes());
     let mut login_params = login_params.clone();
     login_params.password = std::str::from_utf8(&hash)?.into();
     let rq = RpcMessage::new_request("", "login", Some(login_params.to_rpcvalue()));
+    debug!("\t send login");
     frame_writer.send_message(rq).await?;
     let resp = frame_reader.receive_message().await?;
-    match resp.result()?.as_map().get("clientId") {
-        None => { Ok(0) }
-        Some(client_id) => { Ok(client_id.as_i32()) }
+    debug!("\t login response result: {:?}", resp.result());
+    match resp.result() {
+        Ok(result) => {
+            match result.as_map().get("clientId") {
+                None => { Ok(0) }
+                Some(client_id) => { Ok(client_id.as_i32()) }
+            }
+        }
+        Err(e) => {
+           Err(format!("Login error: {e}").into())
+        }
     }
 }
 

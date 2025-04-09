@@ -176,43 +176,6 @@ pub fn hex_string(data: &[u8], delim: Option<&str>) -> String {
     }
     ret
 }
-pub fn hex_dump(data: &[u8]) -> String {
-    let mut ret: String = Default::default();
-    let mut hex_line: String = Default::default();
-    let mut char_line: String = Default::default();
-    let box_size = (data.len() / 16 + 1) * 16 + 1;
-    for i in 0..box_size {
-        let byte = if i < data.len() { Some(data[i]) } else { None };
-        if i % 16 == 0 {
-            ret += &hex_line;
-            ret += &char_line;
-            if byte.is_some() {
-                if i > 0 {
-                    ret += "\n";
-                }
-                ret += &format!("{:04x} ", i);
-            }
-            hex_line.clear();
-            char_line.clear();
-        }
-        let hex_str = match byte {
-            None => { "   ".to_string() }
-            Some(b) => { format!("{:02x} ", b) }
-        };
-        let c_str = match byte {
-            None => { " ".to_string() }
-            Some(b) => {
-                let c = b as char;
-                let c = if c >= ' ' && c < (127 as char) { c } else { '.' };
-                format!("{}", c)
-            }
-        };
-        hex_line += &hex_str;
-        char_line += &c_str;
-    }
-    ret
-}
-
 
 #[cfg(test)]
 mod tests {

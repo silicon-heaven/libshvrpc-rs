@@ -8,7 +8,7 @@ use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, Reader, RpcValue, Writ
 use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{PeerId, RpcError, RpcErrorCode, RqId};
 use futures_time::future::FutureExt;
-use crate::util::hex_dump;
+use shvproto::util::hex_dump;
 
 #[derive(Debug)]
 pub enum ReceiveFrameError {
@@ -144,13 +144,8 @@ pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data
         }
     } else {
         reader.read(&mut data.data).await
-    };
-    let n = match n {
-        Ok(n) => { n }
-        Err(e) => {
-            return Err(ReceiveFrameError::StreamError(format!("Read stream error: {e}")));
-        }
-    };
+    }.map_err(|e| ReceiveFrameError::StreamError(format!("Read stream error: {e}")))?;
+
     if n == 0 {
         Err(ReceiveFrameError::StreamError("End of stream".into()))
     } else {

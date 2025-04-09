@@ -211,10 +211,11 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
 
 #[cfg(all(test, feature = "async-std"))]
 mod test {
-    use super::*;
+    use shvproto::util::hex_dump;
+use super::*;
     use crate::framerw::test::from_hex;
     use crate::framerw::test::Chunks;
-    use crate::util::{hex_array, hex_dump};
+    use crate::util::{hex_array};
     use crate::RpcMessage;
     use async_std::io::BufWriter;
     fn init_log() {
