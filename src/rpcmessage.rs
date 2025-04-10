@@ -39,7 +39,8 @@ pub enum Tag {
 }
 pub enum Key {Params = 1, Result, Error, ErrorCode, ErrorMessage, MAX }
 
-static EMPTY_METAMAP: std::sync::OnceLock<MetaMap> = std::sync::OnceLock::new();
+static STATIC_EMPTY_METAMAP: std::sync::OnceLock<MetaMap> = std::sync::OnceLock::new();
+static STATIC_NULL_RPCVALUE: std::sync::OnceLock<RpcValue> = std::sync::OnceLock::new();
 
 #[derive(Clone, Debug)]
 pub struct RpcMessage (RpcValue);
@@ -74,26 +75,26 @@ impl RpcMessage {
         RpcFrame::from_rpcmessage(self)
     }
     pub fn param(&self) -> Option<&RpcValue> {
-        self.key(Key::Params as i32)
+        self.ival(Key::Params as i32)
     }
     pub fn set_param(&mut self, rv: impl Into<RpcValue>) -> &mut Self {
         self.set_param_opt(Some(rv.into()))
     }
     pub fn set_param_opt(&mut self, rv: Option<RpcValue>) -> &mut Self {
-        self.set_key(Key::Params, rv)
+        self.set_ival(Key::Params, rv)
     }
     pub fn result(&self) -> Result<&RpcValue, RpcError> {
-        match self.key(Key::Result as i32) {
+        match self.ival(Key::Error as i32) {
             None => {
-                match self.error() {
-                    None => {Err(RpcError{ code: RpcErrorCode::InternalError, message: "Neither 'result' nor 'error' key found in RPC response.".to_string() })}
-                    Some(err) => {Err(err)}
-                }
+                Ok(self.ival(Key::Result as i32).unwrap_or(STATIC_NULL_RPCVALUE.get_or_init(RpcValue::null)))
             }
-            Some(rv) => {Ok(rv)}
+            Some(err) => {
+                Err(RpcError::from_rpcvalue(err)
+                    .unwrap_or(RpcError{ code: RpcErrorCode::InvalidParam, message: "Cannot parse 'error' key found in RPC response.".to_string() }))
+            }
         }
     }
-    pub fn set_result(&mut self, rv: impl Into<RpcValue>) -> &mut Self { self.set_key(Key::Result, Some(rv.into())); self }
+    pub fn set_result(&mut self, rv: impl Into<RpcValue>) -> &mut Self { self.set_ival(Key::Result, Some(rv.into())); self }
     pub fn set_result_or_error(&mut self, result: Result<RpcValue, RpcError>) -> &mut Self {
         match result {
             Ok(val) => self.set_result(val),
@@ -101,10 +102,10 @@ impl RpcMessage {
         }
     }
     pub fn error(&self) -> Option<RpcError> {
-        self.key(Key::Error as i32).and_then(RpcError::from_rpcvalue)
+        self.ival(Key::Error as i32).and_then(RpcError::from_rpcvalue)
     }
     pub fn set_error(&mut self, err: RpcError) -> &mut Self {
-        self.set_key(Key::Error, Some(err.to_rpcvalue()))
+        self.set_ival(Key::Error, Some(err.to_rpcvalue()))
     }
     pub fn is_success(&self) -> bool {
         self.result().is_ok()
@@ -115,7 +116,7 @@ impl RpcMessage {
 
     pub fn meta(&self) -> &MetaMap {
         self.0.meta.as_ref().map_or_else(
-            || EMPTY_METAMAP.get_or_init(MetaMap::new),
+            || STATIC_EMPTY_METAMAP.get_or_init(MetaMap::new),
             <Box<MetaMap>>::as_ref
         )
     }
@@ -137,13 +138,13 @@ impl RpcMessage {
         };
         self
     }
-    fn key(&self, key: i32) -> Option<&RpcValue> {
+    fn ival(&self, key: i32) -> Option<&RpcValue> {
         if let Value::IMap(m) = &self.0.value {
             return m.get(&key);
         }
         None
     }
-    fn set_key(&mut self, key: Key, rv: Option<RpcValue>) -> &mut Self {
+    fn set_ival(&mut self, key: Key, rv: Option<RpcValue>) -> &mut Self {
         if let Value::IMap(m) = &mut self.0.value {
             match rv {
                 Some(rv) => m.insert(key as i32, rv),

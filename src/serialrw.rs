@@ -2,13 +2,14 @@ use crate::framerw::{
     format_peer_id, read_bytes, FrameData, FrameReader, FrameReaderPrivate, RawData,
 };
 use crate::framerw::{serialize_meta, FrameWriter, ReceiveFrameError};
-use crate::rpcframe::{Protocol, RpcFrame};
+use crate::rpcframe::{RpcFrame};
 use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
 use crc::{Crc, CRC_32_ISO_HDLC};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use log::*;
 use std::mem::replace;
+use shvproto::util::hex_dump;
 
 const STX: u8 = 0xA2;
 const ETX: u8 = 0xA3;
@@ -264,8 +265,11 @@ impl<W: AsyncWrite + Unpin + Send> SerialFrameWriter<W> {
         digest: &mut Option<crc::Digest<'_, u32>>,
         data: &[u8],
     ) -> crate::Result<()> {
-        if let Some(ref mut digest) = digest {
+        if let Some(digest) = digest {
             digest.update(data);
+        }
+        if log_enabled!(target: "RpcData", Level::Debug) {
+            log!(target: "RpcData", Level::Debug, "data sent --> {}", hex_dump(data));
         }
         self.writer.write_all(data).await?;
         Ok(())
@@ -304,12 +308,12 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
             None
         };
         let meta_data = serialize_meta(&frame)?;
-        self.writer.write_all(&[STX]).await?;
-        let protocol = [Protocol::ChainPack as u8];
+        self.write_bytes(&mut None, &[STX]).await?;
+        let protocol = [frame.protocol as u8];
         self.write_escaped(&mut digest, &protocol).await?;
         self.write_escaped(&mut digest, &meta_data).await?;
         self.write_escaped(&mut digest, &frame.data).await?;
-        self.writer.write_all(&[ETX]).await?;
+        self.write_bytes(&mut None, &[ETX]).await?;
         if self.with_crc {
             fn u32_to_bytes(x: u32) -> [u8; 4] {
                 let b0: u8 = ((x >> 24) & 0xff) as u8;
@@ -334,9 +338,10 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
 mod test {
     use super::*;
     use crate::framerw::test::from_hex;
-    use crate::util::{hex_dump, hex_string};
+    use crate::util::{hex_string};
     use crate::RpcMessage;
     use async_std::io::BufWriter;
+    use crate::rpcframe::Protocol;
 
     fn init_log() {
         let _ = env_logger::builder()
@@ -369,6 +374,37 @@ mod test {
                 let read_data = rd.read_escaped().await.unwrap();
                 assert_eq!(&read_data, data);
             }
+        }
+    }
+
+    #[async_std::test]
+    async fn test_write_reset_session_frame() {
+        init_log();
+        let reset_frame_data = [STX, Protocol::ResetSession as u8, ETX];
+        {
+            let frame = RpcFrame::new_reset_session();
+            let mut buff: Vec<u8> = vec![];
+            let buffwr = BufWriter::new(&mut buff);
+            {
+                let mut wr = SerialFrameWriter::new(buffwr).with_crc_check(false);
+                wr.send_frame(frame.clone()).await.unwrap();
+            }
+            assert_eq!(&buff[..], reset_frame_data);
+        }
+        {
+            let mut crc_digest = CRC_32.digest();
+            crc_digest.update(&reset_frame_data[1 .. 2]);
+            let crc = crc_digest.finalize();
+            assert_eq!(crc, 0xd202ef8d);
+            let frame = RpcFrame::new_reset_session();
+            let mut buff: Vec<u8> = vec![];
+            let buffwr = BufWriter::new(&mut buff);
+            {
+                let mut wr = SerialFrameWriter::new(buffwr).with_crc_check(true);
+                wr.send_frame(frame.clone()).await.unwrap();
+            }
+            assert_eq!(&buff[0 .. reset_frame_data.len()], reset_frame_data);
+            assert_eq!(&buff[reset_frame_data.len() ..], [0xd2, 0x02, 0xef, 0x8d]);
         }
     }
 
