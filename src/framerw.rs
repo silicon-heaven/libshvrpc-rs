@@ -84,7 +84,10 @@ pub(crate) trait FrameReaderPrivate {
                 assert!(!self.frame_data_ref().data.is_empty());
                 let proto = self.frame_data_ref().data[0];
                 if proto == Protocol::ResetSession as u8 {
-                    return Err(ReceiveFrameError::StreamError("Reset session message received.".into()));
+                    self.frame_data_ref_mut().data.drain(..1);
+                    self.reset_frame_data();
+                    log!(target: "RpcMsg", Level::Debug, "R==> {} RESET_SESSION", format_peer_id(self.peer_id()));
+                    return Ok(RpcFrame::new_reset_session())
                 }
                 if proto != Protocol::ChainPack as u8 {
                     return Err(ReceiveFrameError::FrameError(format!("Invalid protocol type received {:#02x}.", proto)));
