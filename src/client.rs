@@ -11,6 +11,8 @@ use crate::framerw::{FrameReader, FrameWriter};
 use crate::util::sha1_password_hash;
 use log::debug;
 use crate::rpcframe::Protocol;
+use crate::rpcmessage::RqId;
+use crate::rpcmessage::RpcMessageMetaTags;
 
 #[derive(Copy, Clone, Debug)]
 pub enum LoginType {
@@ -80,8 +82,23 @@ impl LoginParams {
     }
 }
 
-pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &mut (dyn FrameWriter + Send), login_params: &LoginParams) -> crate::Result<i32>
-{
+pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &mut (dyn FrameWriter + Send), login_params: &LoginParams) -> crate::Result<i32> {
+    async fn get_response(rqid: Option<RqId>, frame_reader: &mut (dyn FrameReader + Send)) -> crate::Result<Option<RpcMessage>> {
+        let Some(rqid) = rqid else {
+            return Err("BUG: request id should be set".into());
+        };
+        loop {
+            let frame = frame_reader.receive_frame().await?;
+            if frame.protocol == Protocol::ResetSession {
+                return Ok(None);
+            }
+            let resp = frame.to_rpcmesage()?;
+            if resp.request_id().unwrap_or_default() != rqid {
+                continue;
+            }
+            return Ok(Some(resp))
+        };
+    }
     debug!("Login sequence started");
     if login_params.reset_session {
         debug!("\t reset session");
@@ -90,14 +107,12 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
     'session_loop: loop {
         debug!("\t send hello");
         let rq = RpcMessage::new_request("", "hello", None);
+        let hello_rq_id = rq.request_id();
         frame_writer.send_message(rq).await?;
-
-        let frame = frame_reader.receive_frame().await?;
-        if frame.protocol == Protocol::ResetSession {
-            continue 'session_loop;
-        }
-        let resp = frame.to_rpcmesage()?;
-
+        let resp = match get_response(hello_rq_id, frame_reader).await? {
+            None => continue 'session_loop,
+            Some(resp) => resp,
+        };
         if !resp.is_success() {
             return Err(resp.error().unwrap().to_rpcvalue().to_cpon().into());
         }
@@ -108,14 +123,14 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
         let mut login_params = login_params.clone();
         login_params.password = std::str::from_utf8(&hash)?.into();
         let rq = RpcMessage::new_request("", "login", Some(login_params.to_rpcvalue()));
+        let login_rq_id = rq.request_id();
         debug!("\t send login");
         frame_writer.send_message(rq).await?;
 
-        let frame = frame_reader.receive_frame().await?;
-        if frame.protocol == Protocol::ResetSession {
-            continue 'session_loop;
-        }
-        let resp = frame.to_rpcmesage()?;
+        let resp = match get_response(login_rq_id, frame_reader).await? {
+            None => continue 'session_loop,
+            Some(resp) => resp,
+        };
 
         debug!("\t login response result: {:?}", resp.result());
         match resp.result() {
@@ -131,6 +146,7 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
         }
     }
 }
+
 
 fn default_heartbeat() -> Duration { Duration::from_secs(60) }
 
