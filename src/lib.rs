@@ -8,6 +8,7 @@ pub mod rpcmessage;
 pub mod rpcdiscovery;
 pub mod serialrw;
 pub mod streamrw;
+pub mod websocketrw;
 pub mod util;
 
 pub use rpcmessage::{RpcMessage, RpcMessageMetaTags};
