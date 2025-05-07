@@ -1,6 +1,6 @@
 [package]
 name = "shvrpc"
-version = "3.3.2"
+version = "3.4.0"
 edition = "2021"
 
 [dependencies]
@@ -18,10 +18,11 @@ serde = "1.0.193"
 serde_yaml = "0.9.29"
 async-std = { version = "1.12.0", features = ["attributes"], optional = true }
 futures-time = "3.0.0"
+tungstenite = { version = "0.26.2", optional = true, default-features = false }
 
 [dev-dependencies]
 env_logger = "0.11.5"
 
 [features]
 async-std = ["dep:async-std"]
-
+websocket = ["dep:tungstenite"]
