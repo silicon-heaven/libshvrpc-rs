@@ -43,39 +43,42 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
     }
 
     async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError> {
-        // Every read yields one WebSocket message
-        let msg = self.reader
-            .next()
-            .await
-            .ok_or_else(|| ReceiveFrameError::FrameError("End of stream".into()))?
-            .map_err(|e| ReceiveFrameError::FrameError(format!("{e}")))?;
+        loop {
+            // Every read yields one WebSocket message
+            let msg = self.reader
+                .next()
+                .await
+                .ok_or_else(|| ReceiveFrameError::FrameError("End of stream".into()))?
+                .map_err(|e| ReceiveFrameError::FrameError(format!("{e}")))?;
 
-        match msg {
-            tungstenite::Message::Binary(bytes) => {
-                let mut bufrd = BufReader::new(&bytes[..]);
-                let mut rd = shvproto::ChainPackReader::new(&mut bufrd);
-                let frame_size = rd
-                    .read_uint_data()
-                    .map_err(|e|
-                        ReceiveFrameError::FrameError(format!("Cannot parse size of a frame: {e}"))
-                    )?;
-                let frame_start = rd.position();
-                let frame = &bytes[frame_start..];
-                if frame_size != frame.len() as u64 {
-                    return Err(
-                        ReceiveFrameError::FrameError(
-                            format!("Frame size mismatch: {} != {}", frame_size, frame.len())
-                        )
-                    );
+            match msg {
+                tungstenite::Message::Binary(bytes) => {
+                    let mut bufrd = BufReader::new(&bytes[..]);
+                    let mut rd = shvproto::ChainPackReader::new(&mut bufrd);
+                    let frame_size = rd
+                        .read_uint_data()
+                        .map_err(|e|
+                            ReceiveFrameError::FrameError(format!("Cannot parse size of a frame: {e}"))
+                        )?;
+                    let frame_start = rd.position();
+                    let frame = &bytes[frame_start..];
+                    if frame_size != frame.len() as u64 {
+                        return Err(
+                            ReceiveFrameError::FrameError(
+                                format!("Frame size mismatch: {} != {}", frame_size, frame.len())
+                            )
+                        );
+                    }
+                    self.frame_data.complete = true;
+                    self.frame_data.meta = None;
+                    self.frame_data.data = frame.into();
+                    break;
                 }
-                self.frame_data.complete = true;
-                self.frame_data.meta = None;
-                self.frame_data.data = frame.into();
-            }
-            tungstenite::Message::Text(utf8_bytes) =>
-                warn!("Received unsupported Text message on a WebSocket: {}", utf8_bytes),
-            _ => { }
-        };
+                tungstenite::Message::Text(utf8_bytes) =>
+                    warn!("Received unsupported Text message on a WebSocket: {}", utf8_bytes),
+                _ => { }
+            };
+        }
         Ok(())
     }
 
@@ -208,5 +211,32 @@ mod test {
                 assert!(rd.receive_frame().await.is_err());
             }
         }
+    }
+
+    #[async_std::test]
+    async fn test_ignore_non_binary_mesage() {
+        init_log();
+        let msg = RpcMessage::new_request("foo/bar", "baz", Some("hello".into()));
+        let frame = msg.to_frame().unwrap();
+        let buff = frame_to_data(&frame).await;
+        debug!("msg: {}", msg);
+        debug!("array: {}", hex_array(&buff));
+        debug!("bytes:\n{}\n-------------", hex_dump(&buff));
+        let stream = futures::stream::iter([
+            Ok(tungstenite::Message::text("abc")),
+            Ok(tungstenite::Message::binary(buff.clone())),
+            Ok(tungstenite::Message::text("xyz")),
+            Ok(tungstenite::Message::Ping(tungstenite::Bytes::new())),
+            Ok(tungstenite::Message::binary(buff)),
+            Ok(tungstenite::Message::text("lol")),
+        ]);
+        let mut rd = WebSocketFrameReader::new(stream);
+        // All messages except binary are ignored
+        let rd_frame = rd.receive_frame().await.unwrap();
+        assert_eq!(&rd_frame, &frame);
+        let rd_frame = rd.receive_frame().await.unwrap();
+        assert_eq!(&rd_frame, &frame);
+        // End of stream
+        assert!(rd.receive_frame().await.is_err());
     }
 }
