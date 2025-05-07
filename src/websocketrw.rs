@@ -150,26 +150,66 @@ impl<W: Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin + Send> F
 mod test {
     use shvproto::util::hex_dump;
     use super::*;
-    use crate::framerw::test::from_hex;
-    use crate::framerw::test::Chunks;
-    use crate::util::{hex_array};
+    use crate::util::hex_array;
     use crate::RpcMessage;
-    use async_std::io::BufWriter;
+    use std::task::Poll;
+
+    struct MockWebSocketSink<'a> {
+        buf: &'a mut Vec<u8>,
+    }
+    impl<'a> Sink<tungstenite::Message> for MockWebSocketSink<'a> {
+        type Error = tungstenite::Error;
+
+        fn poll_ready(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn start_send(self: std::pin::Pin<&mut Self>, item: tungstenite::Message) -> Result<(), Self::Error> {
+            *self.get_mut().buf = item.into_data().into();
+            Ok(())
+        }
+
+        fn poll_flush(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    // struct MockWebSocketStream {
+    //     buf: Vec<u8>,
+    // }
+    // impl Stream for MockWebSocketStream {
+    //     type Item = Result<tungstenite::Message, tungstenite::Error>;
+    //
+    //     fn size_hint(&self) -> (usize, Option<usize>) {
+    //         (0, None)
+    //     }
+    //
+    //     fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
+    //         todo!()
+    //     }
+    // }
+
     fn init_log() {
         let _ = env_logger::builder()
-            //.filter(None, LevelFilter::Debug)
+            .filter(None, LevelFilter::Debug)
             .is_test(true)
             .try_init();
     }
+
     async fn frame_to_data(frame: &RpcFrame) -> Vec<u8> {
         let mut buff: Vec<u8> = vec![];
-        let buffwr = BufWriter::new(&mut buff);
+        let sink = MockWebSocketSink{ buf: &mut buff };
         {
-            let mut wr = WebSocketFrameWriter::new(buffwr);
+            let mut wr = WebSocketFrameWriter::new(sink);
             wr.send_frame(frame.clone()).await.unwrap();
         }
         buff
     }
+
     #[async_std::test]
     async fn test_write_frame() {
         init_log();
@@ -178,125 +218,15 @@ mod test {
             RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 128][..]).into())),
         ] {
             let frame = msg.to_frame().unwrap();
-
             let buff = frame_to_data(&frame).await;
             debug!("msg: {}", msg);
             debug!("array: {}", hex_array(&buff));
             debug!("bytes:\n{}\n-------------", hex_dump(&buff));
             {
-                let buffrd = async_std::io::BufReader::new(&*buff);
-                let mut rd = StreamFrameReader::new(buffrd);
+                let stream = futures::stream::iter([Ok(tungstenite::Message::binary(buff))]);
+                let mut rd = WebSocketFrameReader::new(stream);
                 let rd_frame = rd.receive_frame().await.unwrap();
                 assert_eq!(&rd_frame, &frame);
-            }
-            {
-                let buffrd = async_std::io::BufReader::new(&*buff);
-                let mut rd = StreamFrameReader::new(buffrd);
-                let rd_frame = rd.receive_frame().await.unwrap();
-                assert_eq!(&rd_frame, &frame);
-            }
-        }
-    }
-
-    #[async_std::test]
-    async fn test_read_frame_by_chunks() {
-        init_log();
-        for chunks in [
-            // <1:1,8:5,9:"foo/bar",10:"baz">i{1:"hello"}
-            vec![
-                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
-            ],
-            // chunk split after meta end
-            vec![
-                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff"),
-                from_hex("8a 41 86 05 68 65 6c 6c 6f ff"),
-            ],
-            vec![
-                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61"),
-                from_hex("72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c"),
-                from_hex("6f ff"),
-            ],
-            vec![
-                from_hex("21"),
-                from_hex("01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61"),
-                from_hex("72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c"),
-                from_hex("6f ff"),
-            ],
-            vec![
-                from_hex("21 01 8b 41 41 48 45 49"),
-                from_hex("86 07 66 6f 6f 2f 62 61"),
-                from_hex("72 4a 86 03 62 61 7a ff 8a"),
-                from_hex("41 86 05 68 65 6c 6c"),
-                from_hex("6f ff"),
-            ],
-        ] {
-            let mut rd = StreamFrameReader::new(Chunks { chunks });
-            let frame = rd.receive_frame().await;
-            assert!(frame.is_ok());
-        };
-    }
-    #[async_std::test]
-    async fn test_read_two_frames_more_chunks() {
-        init_log();
-        //debug!("test_read_two_frames_more_chunks");
-        for chunks in [
-            // <1:1,8:5,9:"foo/bar",10:"baz">i{1:"hello"}
-            vec![
-                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff
-                          21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
-            ],
-            vec![
-                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
-                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
-            ],
-            vec![
-               from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff 21"),
-               from_hex("01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff"),
-               from_hex("ff 8a 41 86 05 68 65 6c 6c 6f ff"),
-            ],
-        ] {
-            let mut rd = StreamFrameReader::new(Chunks { chunks });
-            for _ in 0 .. 2 {
-                let frame = rd.receive_frame().await;
-                assert!(frame.is_ok());
-            }
-        };
-    }
-    #[async_std::test]
-    async fn test_read_big_frame_more_chunks() {
-        init_log();
-        let msg = RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 129][..]).into()));
-        // 0000 80 9e 01 8b 41 41 48 42 49 86 07 66 6f 6f 2f 62 ....AAHBI..foo/b
-        // 0010 61 72 4a 86 03 62 61 7a ff 8a 41 85 80 80 00 00 arJ..baz..A.....
-        // 0020 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
-        // 0030 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
-        // 0040 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
-        // 0050 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
-        // 0060 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
-        // 0070 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
-        // 0080 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
-        // 0090 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff ................
-        let data1 = frame_to_data(&msg.to_frame().unwrap()).await;
-        let data1_len = data1.len();
-        let meta_start = 3;
-        let meta_end = 0x19;
-        let mut data = data1.clone();
-        data.append(&mut data1.clone());
-        for chunks in [
-            vec![data1.clone(), data1.clone()],
-            vec![
-                data[0..1].to_vec(),
-                data[1..2].to_vec(),
-                data[2..meta_start].to_vec(),
-                data[meta_start..meta_end].to_vec(),
-                data[meta_end..data1_len + 1].to_vec(),
-                data[data1_len + 1..].to_vec(),
-            ],
-        ] {
-            let mut rd = StreamFrameReader::new(Chunks { chunks });
-            for _ in 0..2 {
-                let frame = rd.receive_frame().await;
-                assert!(frame.is_ok());
             }
         }
     }
