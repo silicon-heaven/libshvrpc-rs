@@ -5,6 +5,7 @@ use crate::framerw::{
 use crate::rpcframe::RpcFrame;
 use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
+use std::io::BufReader;
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use log::*;
 use shvproto::ChainPackWriter;
@@ -46,17 +47,33 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
         let msg = self.reader
             .next()
             .await
-            .ok_or_else(|| ReceiveFrameError::FrameError(format!("End of stream")))?
+            .ok_or_else(|| ReceiveFrameError::FrameError("End of stream".into()))?
             .map_err(|e| ReceiveFrameError::FrameError(format!("{e}")))?;
 
         match msg {
             tungstenite::Message::Binary(bytes) => {
-               self.frame_data.complete = true;
-               self.frame_data.meta = None;
-               self.frame_data.data = bytes.into();
+                let mut bufrd = BufReader::new(&bytes[..]);
+                let mut rd = shvproto::ChainPackReader::new(&mut bufrd);
+                let frame_size = rd
+                    .read_uint_data()
+                    .map_err(|e|
+                        ReceiveFrameError::FrameError(format!("Cannot parse size of a frame: {e}"))
+                    )?;
+                let frame_start = rd.position();
+                let frame = &bytes[frame_start..];
+                if frame_size != frame.len() as u64 {
+                    return Err(
+                        ReceiveFrameError::FrameError(
+                            format!("Frame size mismatch: {} != {}", frame_size, frame.len())
+                        )
+                    );
+                }
+                self.frame_data.complete = true;
+                self.frame_data.meta = None;
+                self.frame_data.data = frame.into();
             }
             tungstenite::Message::Text(utf8_bytes) =>
-                warn!("Unsupported Text message received from WebSocket: {}", utf8_bytes),
+                warn!("Received unsupported Text message on a WebSocket: {}", utf8_bytes),
             _ => { }
         };
         Ok(())
@@ -85,30 +102,6 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
         self.receive_frame_private().await
     }
 }
-// fn read_frame(buff: &[u8]) -> crate::Result<RpcFrame> {
-//     // log!(target: "RpcData", Level::Debug, "\n{}", hex_dump(buff));
-//     let mut buffrd = BufReader::new(buff);
-//     let mut rd = ChainPackReader::new(&mut buffrd);
-//     let frame_len = match rd.read_uint_data() {
-//         Ok(len) => { len as usize }
-//         Err(err) => {
-//             return Err(err.msg.into());
-//         }
-//     };
-//     let pos = rd.position();
-//     let data = &buff[pos .. pos + frame_len];
-//     let protocol = if data[0] == 0 {Protocol::ResetSession} else { Protocol::ChainPack };
-//     let data = &data[1 .. ];
-//     let mut buffrd = BufReader::new(data);
-//     let mut rd = ChainPackReader::new(&mut buffrd);
-//     if let Ok(Some(meta)) = rd.try_read_meta() {
-//         let pos = rd.position();
-//         let frame = RpcFrame { protocol, meta, data: data[pos ..].to_vec() };
-//         //log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
-//         return Ok(frame);
-//     }
-//     Err("Meta data read error".into())
-// }
 
 pub struct WebSocketFrameWriter<W: Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin + Send> {
     peer_id: PeerId,
