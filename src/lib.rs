@@ -8,6 +8,7 @@ pub mod rpcmessage;
 pub mod rpcdiscovery;
 pub mod serialrw;
 pub mod streamrw;
+#[cfg(feature = "websocket")]
 pub mod websocketrw;
 pub mod util;
 

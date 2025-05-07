@@ -129,12 +129,11 @@ impl<W: Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin + Send> F
         let msg_len = 1 + meta_data.len() + frame.data.len();
         wr.write_uint_data(msg_len as u64)?;
         header.push(frame.protocol as u8);
-
-        let mut data = Vec::with_capacity(header.len() + meta_data.len() + frame.data.len());
-        data.extend_from_slice(&header);
-        data.extend_from_slice(&meta_data);
-        data.extend_from_slice(&frame.data);
-        let msg = tungstenite::Message::binary(data);
+        let mut msg_data = Vec::with_capacity(header.len() + meta_data.len() + frame.data.len());
+        msg_data.extend_from_slice(&header);
+        msg_data.extend_from_slice(&meta_data);
+        msg_data.extend_from_slice(&frame.data);
+        let msg = tungstenite::Message::binary(msg_data);
         self.writer.send(msg).await.map_err(|e| format!("Cannot send a WebSocket frame: {e}").into())
     }
 }
@@ -150,7 +149,7 @@ mod test {
     struct MockWebSocketSink<'a> {
         buf: &'a mut Vec<u8>,
     }
-    impl<'a> Sink<tungstenite::Message> for MockWebSocketSink<'a> {
+    impl Sink<tungstenite::Message> for MockWebSocketSink<'_> {
         type Error = tungstenite::Error;
 
         fn poll_ready(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
@@ -170,21 +169,6 @@ mod test {
             Poll::Ready(Ok(()))
         }
     }
-
-    // struct MockWebSocketStream {
-    //     buf: Vec<u8>,
-    // }
-    // impl Stream for MockWebSocketStream {
-    //     type Item = Result<tungstenite::Message, tungstenite::Error>;
-    //
-    //     fn size_hint(&self) -> (usize, Option<usize>) {
-    //         (0, None)
-    //     }
-    //
-    //     fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
-    //         todo!()
-    //     }
-    // }
 
     fn init_log() {
         let _ = env_logger::builder()
@@ -209,6 +193,7 @@ mod test {
         for msg in [
             RpcMessage::new_request("foo/bar", "baz", Some("hello".into())),
             RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 128][..]).into())),
+            RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 5000][..]).into())),
         ] {
             let frame = msg.to_frame().unwrap();
             let buff = frame_to_data(&frame).await;
