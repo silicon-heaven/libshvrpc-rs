@@ -205,6 +205,7 @@ mod test {
                 let mut rd = WebSocketFrameReader::new(stream);
                 let rd_frame = rd.receive_frame().await.unwrap();
                 assert_eq!(&rd_frame, &frame);
+                assert!(rd.receive_frame().await.is_err());
             }
         }
     }
