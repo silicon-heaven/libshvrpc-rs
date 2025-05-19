@@ -301,9 +301,9 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
     }
     async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()> {
         log!(target: "RpcMsg", Level::Debug, "S<== {} {}", format_peer_id(self.peer_id), &frame);
-        let gen = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
+        let crc = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
         let mut digest = if self.with_crc {
-            Some(gen.digest())
+            Some(crc.digest())
         } else {
             None
         };
