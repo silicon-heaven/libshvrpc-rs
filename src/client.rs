@@ -41,7 +41,6 @@ pub struct LoginParams {
     pub device_id: String,
     pub mount_point: String,
     pub heartbeat_interval: Duration,
-    pub reset_session: bool,
 }
 
 impl Default for LoginParams {
@@ -53,7 +52,6 @@ impl Default for LoginParams {
             device_id: "".to_string(),
             mount_point: "".to_string(),
             heartbeat_interval: Duration::from_secs(60),
-            reset_session: true,
         }
     }
 }
@@ -82,7 +80,7 @@ impl LoginParams {
     }
 }
 
-pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &mut (dyn FrameWriter + Send), login_params: &LoginParams) -> crate::Result<i32> {
+pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &mut (dyn FrameWriter + Send), login_params: &LoginParams, reset_session: bool) -> crate::Result<i32> {
     async fn get_response(rqid: Option<RqId>, frame_reader: &mut (dyn FrameReader + Send)) -> crate::Result<Option<RpcMessage>> {
         let Some(rqid) = rqid else {
             return Err("BUG: request id should be set".into());
@@ -100,7 +98,7 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
         };
     }
     debug!("Login sequence started");
-    if login_params.reset_session {
+    if reset_session {
         debug!("\t reset session");
         frame_writer.send_reset_session().await?;
     }
