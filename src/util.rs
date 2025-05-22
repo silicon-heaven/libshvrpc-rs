@@ -18,7 +18,9 @@ pub fn sha1_password_hash(password: &[u8], nonce: &[u8]) -> Vec<u8> {
     nonce_pass.append(&mut hash);
     sha1_hash(&nonce_pass)
 }
-pub fn join_path(p1: &str, p2: &str) -> String {
+
+pub fn join_path(p1: impl AsRef<str>, p2: impl AsRef<str>) -> String {
+    let (p1, p2) = (p1.as_ref(), p2.as_ref());
     if p1.is_empty() && p2.is_empty() {
         "".to_string()
     } else if p1.is_empty() {
@@ -29,7 +31,20 @@ pub fn join_path(p1: &str, p2: &str) -> String {
         p1.trim_matches('/').to_string() + "/" + p2.trim_matches('/')
     }
 }
-pub fn starts_with_path(shv_path: &str, with_path: &str) -> bool {
+
+#[macro_export]
+macro_rules! join_path {
+    ( $first:expr $(, $rest:expr )+ ) => {{
+        let mut path = $first.to_string();
+        $(
+            path = $crate::util::join_path(&path, $rest);
+        )+
+        path
+    }};
+}
+
+pub fn starts_with_path(shv_path: impl AsRef<str>, with_path: impl AsRef<str>) -> bool {
+    let (shv_path, with_path) = (shv_path.as_ref(), with_path.as_ref());
     let with_path_without_trailing_slash = with_path.strip_suffix('/').unwrap_or(with_path);
     if with_path_without_trailing_slash.is_empty() {
         return true
@@ -276,6 +291,17 @@ mod tests {
             //debug!("prefix: {prefix}, path: {path}");
             assert_eq!(strip_prefix_path(path, prefix), res);
         }
+    }
+
+    #[test]
+    fn join_multiple_path_segments() {
+        let foo = "foo".to_string();
+        let bar = "bar".to_string();
+        let baz = "baz".to_string();
+        assert_eq!(join_path!("foo", "bar", "baz"), "foo/bar/baz".to_string());
+        assert_eq!(join_path!(foo, "bar", "baz"), "foo/bar/baz".to_string());
+        assert_eq!(join_path!("foo", bar.clone(), "baz"), "foo/bar/baz".to_string());
+        assert_eq!(join_path!(foo, bar, baz), "foo/bar/baz".to_string());
     }
 
 }
