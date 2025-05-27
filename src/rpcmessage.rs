@@ -37,10 +37,65 @@ pub enum Tag {
     Part = 21,
     MAX
 }
-pub enum Key {Params = 1, Result, Error, ErrorCode, ErrorMessage, MAX }
+pub enum Key {
+    Params = 1,
+    Result,
+    Error,
+    Delay,
+    Abort,
+}
+
+pub enum AbortParam {
+    Query,
+    Abort,
+}
+
+impl From<AbortParam> for RpcValue {
+    fn from(value: AbortParam) -> Self {
+        match value {
+            AbortParam::Query => false,
+            AbortParam::Abort => true,
+        }
+        .into()
+    }
+}
+
+impl TryFrom<&RpcValue> for AbortParam {
+    type Error = String;
+
+    fn try_from(value: &RpcValue) -> Result<Self, Self::Error> {
+        if let Value::Bool(val) = value.value {
+            Ok(if val { Self:: Abort } else { Self::Query })
+        } else {
+            Err(format!("Cannot parse AbortParam, expected type Bool, got: {}", value.type_name()))
+        }
+    }
+}
 
 static STATIC_EMPTY_METAMAP: std::sync::OnceLock<MetaMap> = std::sync::OnceLock::new();
 static STATIC_NULL_RPCVALUE: std::sync::OnceLock<RpcValue> = std::sync::OnceLock::new();
+
+#[derive(Clone,Debug)]
+pub enum Response<'a> {
+    Success(&'a RpcValue),
+    Delay(f64),
+}
+
+impl<'a> Response<'a> {
+    pub fn success(&self) -> Option<&'a RpcValue> {
+        match self {
+            Response::Success(rpc_value) => Some(rpc_value),
+            _ => None,
+        }
+    }
+    pub fn delay(&self) -> Option<f64> {
+        match self {
+            Response::Delay(progress) => Some(*progress),
+            _ => None,
+        }
+    }
+}
+
 
 #[derive(Clone, Debug)]
 pub struct RpcMessage (RpcValue);
@@ -83,16 +138,29 @@ impl RpcMessage {
     pub fn set_param_opt(&mut self, rv: Option<RpcValue>) -> &mut Self {
         self.set_ival(Key::Params, rv)
     }
-    pub fn result(&self) -> Result<&RpcValue, RpcError> {
-        match self.ival(Key::Error as i32) {
-            None => {
-                Ok(self.ival(Key::Result as i32).unwrap_or(STATIC_NULL_RPCVALUE.get_or_init(RpcValue::null)))
-            }
-            Some(err) => {
-                Err(RpcError::from_rpcvalue(err)
-                    .unwrap_or(RpcError{ code: RpcErrorCode::InvalidParam, message: "Cannot parse 'error' key found in RPC response.".to_string() }))
-            }
+    pub fn abort(&self) -> Option<AbortParam> {
+        self.ival(Key::Abort as i32)
+            .and_then(|v| v.try_into().ok())
+    }
+    pub fn set_abort(&mut self, param: AbortParam) -> &mut Self {
+        self.set_ival(Key::Abort, Some(param.into()))
+    }
+
+    pub fn response(&self) -> Result<Response, RpcError> {
+        if let Some(err) = self.ival(Key::Error as i32) {
+            return Err(RpcError::from_rpcvalue(err)
+                .unwrap_or(RpcError {
+                    code: RpcErrorCode::InvalidParam,
+                    message: "Cannot parse 'error' key found in RPC response.".to_string(),
+                }));
         }
+        if let Some(progress) = self.ival(Key::Delay as i32) {
+            return Ok(Response::Delay(progress.try_into().unwrap_or_default()))
+        }
+        Ok(Response::Success(self
+            .ival(Key::Result as i32)
+            .unwrap_or_else(|| STATIC_NULL_RPCVALUE.get_or_init(RpcValue::null))
+        ))
     }
     pub fn set_result(&mut self, rv: impl Into<RpcValue>) -> &mut Self { self.set_ival(Key::Result, Some(rv.into())); self }
     pub fn set_result_or_error(&mut self, result: Result<RpcValue, RpcError>) -> &mut Self {
@@ -102,16 +170,28 @@ impl RpcMessage {
         }
     }
     pub fn error(&self) -> Option<RpcError> {
-        self.ival(Key::Error as i32).and_then(RpcError::from_rpcvalue)
+        self.response().err()
     }
     pub fn set_error(&mut self, err: RpcError) -> &mut Self {
         self.set_ival(Key::Error, Some(err.to_rpcvalue()))
     }
     pub fn is_success(&self) -> bool {
-        self.result().is_ok()
+        matches!(self.response(), Ok(Response::Success(_)))
     }
     pub fn is_error(&self) -> bool {
         self.error().is_some()
+    }
+    pub fn delay(&self) -> Option<f64> {
+        match self.response() {
+            Ok(Response::Delay(progress)) => Some(progress),
+            _ => None,
+        }
+    }
+    pub fn set_delay(&mut self, progress: f64) -> &mut Self {
+        self.set_ival(Key::Delay, Some(progress.into()))
+    }
+    pub fn is_delay(&self) -> bool {
+        self.delay().is_some()
     }
 
     pub fn meta(&self) -> &MetaMap {
@@ -528,6 +608,20 @@ mod test {
         assert_eq!(resp.pop_caller_id(), Some(4));
         //let cpon = rq.as_rpcvalue().to_cpon();
         //assert_eq!(cpon, format!("<1:1,8:{},10:\"foo\">i{{1:123}}", id + 1));
+    }
+
+    #[test]
+    fn rpc_msg_delay_abort() {
+        let mut rq = RpcMessage::new_request("x/y", "foo", None);
+        rq.set_abort(super::AbortParam::Query);
+        assert!(rq.abort().is_some());
+        let mut resp = rq.prepare_response().unwrap();
+        resp.set_delay(0.2);
+        assert!(resp.delay().is_some_and(|d| d == 0.2));
+        let mut resp2 = resp.clone();
+        resp2.set_delay(0.3);
+        assert!(resp2.delay().is_some_and(|d| d == 0.3));
+
     }
 
     #[test]
