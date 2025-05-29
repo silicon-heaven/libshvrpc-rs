@@ -99,7 +99,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             EATX => ATX,
             EESC => ESC,
             b => {
-                return Err(ReceiveFrameError::FrameError(format!(
+                return Err(ReceiveFrameError::FramingError(format!(
                     "Framing error, invalid escape byte {:#02x}",
                     b
                 )));
@@ -119,7 +119,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         match self.get_raw_byte().await? {
             STX => {
                 self.unget_stx();
-                return Err(ReceiveFrameError::FrameError(
+                return Err(ReceiveFrameError::FramingError(
                     "Incomplete frame, new STX received within data.".into(),
                 ));
             }
@@ -130,18 +130,18 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                         let b = match self.get_raw_byte().await? {
                             STX => {
                                 self.unget_stx();
-                                return Err(ReceiveFrameError::FrameError(
+                                return Err(ReceiveFrameError::FramingError(
                                     "STX received in CRC.".into(),
                                 ));
                             }
                             ESC => Self::unescape_byte(self.get_raw_byte().await?)?,
                             ATX => {
-                                return Err(ReceiveFrameError::FrameError(
+                                return Err(ReceiveFrameError::FramingError(
                                     "ATX received in CRC.".into(),
                                 ));
                             }
                             ETX => {
-                                return Err(ReceiveFrameError::FrameError(
+                                return Err(ReceiveFrameError::FramingError(
                                     "ETX received in CRC.".into(),
                                 ));
                             }
@@ -162,14 +162,14 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                     //info!("CRC2 {:#04x}", crc2);
                     if crc1 != crc2 {
                         log!(target: "Serial", Level::Warn, "CRC error");
-                        return Err(ReceiveFrameError::FrameError("CRC check error.".into()));
+                        return Err(ReceiveFrameError::FramingError("CRC check error.".into()));
                     }
                 }
                 self.frame_data.complete = true;
                 return Ok(());
             }
             ATX => {
-                return Err(ReceiveFrameError::FrameError(
+                return Err(ReceiveFrameError::FramingError(
                     "ATX received, aborting current frame.".into(),
                 ))
             }
@@ -178,7 +178,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                 let b = self.get_raw_byte().await?;
                 if b == STX {
                     self.unget_stx();
-                    return Err(ReceiveFrameError::FrameError(
+                    return Err(ReceiveFrameError::FramingError(
                         "Incomplete frame, new STX received within escaped data.".into(),
                     ));
                 }
@@ -193,7 +193,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         };
         Ok(())
     }
-    #[cfg(all(test, feature = "async-std"))]
+    #[cfg(test)]
     async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
         let mut data: Vec<u8> = Default::default();
         while let Ok(b) = self.get_raw_byte().await {
@@ -240,7 +240,19 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
         self.peer_id = peer_id
     }
     async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        self.receive_frame_private().await
+        loop {
+            match self.receive_frame_private().await {
+                Ok(frame) => return Ok(frame),
+                Err(ReceiveFrameError::FramingError(e)) => {
+                    // silently ignore ATX, and CRC erorrs
+                    log!(target: "SerialFrameError", Level::Warn, "Ignoring serial framing error: {}", e);
+                    continue;
+                }
+                Err(e) => {
+                    return Err(e)
+                }
+            }
+        }
     }
 }
 pub struct SerialFrameWriter<W: AsyncWrite + Unpin + Send> {
@@ -334,7 +346,7 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
     }
 }
 
-#[cfg(all(test, feature = "async-std"))]
+#[cfg(test)]
 mod test {
     use super::*;
     use crate::framerw::test::from_hex;
@@ -445,9 +457,6 @@ mod test {
                 //debug!("bytes:\n{}\n-------------", hex_dump(&buff2));
                 let buffrd = async_std::io::BufReader::new(&*buff2);
                 let mut rd = SerialFrameReader::new(buffrd).with_crc_check(with_crc);
-                let Err(ReceiveFrameError::FrameError(_)) = rd.receive_frame().await else {
-                    panic!("Frame error should be received");
-                };
                 let rd_frame = rd.receive_frame().await.unwrap();
                 assert_eq!(&rd_frame, &frame);
             }

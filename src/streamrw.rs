@@ -78,7 +78,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                         match reason {
                             ReadErrorReason::UnexpectedEndOfStream => continue,
                             ReadErrorReason::InvalidCharacter => {
-                                return Err(ReceiveFrameError::FrameError(
+                                return Err(ReceiveFrameError::FramingError(
                                     "Cannot read frame length, invalid byte received".into(),
                                 ))
                             }
@@ -209,7 +209,7 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
 //     Ok(())
 // }
 
-#[cfg(all(test, feature = "async-std"))]
+#[cfg(test)]
 mod test {
     use shvproto::util::hex_dump;
 use super::*;

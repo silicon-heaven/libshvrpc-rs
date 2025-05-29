@@ -48,8 +48,8 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
             let msg = self.reader
                 .next()
                 .await
-                .ok_or_else(|| ReceiveFrameError::FrameError("End of stream".into()))?
-                .map_err(|e| ReceiveFrameError::FrameError(format!("{e}")))?;
+                .ok_or_else(|| ReceiveFrameError::StreamError("End of stream".into()))?
+                .map_err(|e| ReceiveFrameError::StreamError(format!("{e}")))?;
 
             match msg {
                 tungstenite::Message::Binary(bytes) => {
@@ -58,13 +58,13 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                     let frame_size = rd
                         .read_uint_data()
                         .map_err(|e|
-                            ReceiveFrameError::FrameError(format!("Cannot parse size of a frame: {e}"))
+                            ReceiveFrameError::FramingError(format!("Cannot parse size of a frame: {e}"))
                         )?;
                     let frame_start = rd.position();
                     let frame = &bytes[frame_start..];
                     if frame_size != frame.len() as u64 {
                         return Err(
-                            ReceiveFrameError::FrameError(
+                            ReceiveFrameError::FramingError(
                                 format!("Frame size mismatch: {} != {}", frame_size, frame.len())
                             )
                         );
@@ -141,7 +141,7 @@ impl<W: Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin + Send> F
     }
 }
 
-#[cfg(all(test, feature = "async-std"))]
+#[cfg(test)]
 mod test {
     use shvproto::util::hex_dump;
     use super::*;
