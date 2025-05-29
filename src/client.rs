@@ -2,16 +2,16 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 use duration_str::HumanFormat;
-use log::{info};
+use log::info;
 use serde::{Deserialize, Serialize};
 use shvproto::RpcValue;
 use url::Url;
-use crate::{RpcMessage};
+use crate::RpcMessage;
 use crate::framerw::{FrameReader, FrameWriter};
 use crate::util::sha1_password_hash;
 use log::debug;
 use crate::rpcframe::Protocol;
-use crate::rpcmessage::RqId;
+use crate::rpcmessage::{Response, RqId};
 use crate::rpcmessage::RpcMessageMetaTags;
 
 #[derive(Copy, Clone, Debug)]
@@ -94,6 +94,9 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
             if resp.request_id().unwrap_or_default() != rqid {
                 continue;
             }
+            if resp.is_delay() {
+                continue;
+            }
             return Ok(Some(resp))
         };
     }
@@ -111,11 +114,14 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
             None => continue 'session_loop,
             Some(resp) => resp,
         };
-        if !resp.is_success() {
-            return Err(resp.error().unwrap().to_rpcvalue().to_cpon().into());
-        }
-        let nonce = resp.result()?.as_map()
-            .get("nonce").ok_or("Bad nonce")?.as_str();
+        let Ok(Response::Success(result)) = resp.response() else {
+            return Err(resp.error().expect("An error message received").to_rpcvalue().to_cpon().into());
+        };
+        let nonce = result
+            .as_map()
+            .get("nonce")
+            .ok_or("Bad nonce")?
+            .as_str();
         debug!("\t nonce received: {}", nonce);
         let hash = sha1_password_hash(login_params.password.as_bytes(), nonce.as_bytes());
         let mut login_params = login_params.clone();
@@ -130,17 +136,13 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
             Some(resp) => resp,
         };
 
-        debug!("\t login response result: {:?}", resp.result());
-        match resp.result() {
-            Ok(result) => {
-                match result.as_map().get("clientId") {
-                    None => { return Ok(0) }
-                    Some(client_id) => { return Ok(client_id.as_i32()) }
-                }
-            }
-            Err(e) => {
-                return Err(format!("Login error: {e}").into())
-            }
+        debug!("\t login response result: {:?}", resp.response());
+        let Ok(Response::Success(result)) = resp.response() else {
+            return Err(format!("Login error: {}", resp.error().expect("An error message received")).into());
+        };
+        match result.as_map().get("clientId") {
+            None => return Ok(0),
+            Some(client_id) => return Ok(client_id.as_i32()),
         }
     }
 }
