@@ -13,7 +13,7 @@ use shvproto::util::hex_dump;
 #[derive(Debug)]
 pub enum ReceiveFrameError {
     Timeout,
-    FrameError(String),
+    FramingError(String),
     StreamError(String),
 }
 
@@ -21,7 +21,7 @@ impl std::fmt::Display for ReceiveFrameError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ReceiveFrameError::Timeout => write!(f, "Read frame timeout"),
-            ReceiveFrameError::FrameError(s) => write!(f, "FrameError - {s}"),
+            ReceiveFrameError::FramingError(s) => write!(f, "FramingError - {s}"),
             ReceiveFrameError::StreamError(s) => write!(f, "StreamError - {s}"),
         }
     }
@@ -90,7 +90,7 @@ pub(crate) trait FrameReaderPrivate {
                     return Ok(RpcFrame::new_reset_session())
                 }
                 if proto != Protocol::ChainPack as u8 {
-                    return Err(ReceiveFrameError::FrameError(format!("Invalid protocol type received {:#02x}.", proto)));
+                    return Err(ReceiveFrameError::FramingError(format!("Invalid protocol type received {:#02x}.", proto)));
                 }
                 let mut buffrd = BufReader::new(&self.frame_data_ref().data[1..]);
                 let mut rd = ChainPackReader::new(&mut buffrd);
@@ -205,7 +205,7 @@ pub fn serialize_meta(frame: &RpcFrame) -> crate::Result<Vec<u8>> {
     Ok(data)
 }
 
-#[cfg(all(test, feature = "async-std"))]
+#[cfg(test)]
 pub(crate) mod test {
     use std::pin::Pin;
     use std::task::{Context, Poll};
