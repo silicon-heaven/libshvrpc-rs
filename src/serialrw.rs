@@ -1,5 +1,5 @@
 use crate::framerw::{
-    format_peer_id, read_bytes, FrameData, FrameReader, FrameReaderPrivate, RawData,
+    format_peer_id, read_raw_data, FrameData, FrameReader, FrameReaderPrivate, RawData,
 };
 use crate::framerw::{serialize_meta, FrameWriter, ReceiveFrameError};
 use crate::rpcframe::{RpcFrame};
@@ -81,7 +81,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     async fn get_raw_byte(&mut self) -> Result<u8, ReceiveFrameError> {
         if self.raw_data.bytes_available() == 0 {
             let with_timeout = self.has_stx;
-            read_bytes(&mut self.reader, &mut self.raw_data, with_timeout).await?;
+            read_raw_data(&mut self.reader, &mut self.raw_data, with_timeout).await?;
         }
         let b = self.raw_data.data[self.raw_data.consumed];
         self.raw_data.consumed += 1;

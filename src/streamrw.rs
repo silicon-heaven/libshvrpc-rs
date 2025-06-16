@@ -1,5 +1,5 @@
 use crate::framerw::{
-    format_peer_id, read_bytes, serialize_meta, FrameData, FrameReader, FrameReaderPrivate,
+    format_peer_id, read_raw_data, serialize_meta, FrameData, FrameReader, FrameReaderPrivate,
     FrameWriter, RawData, ReceiveFrameError,
 };
 use crate::rpcframe::RpcFrame;
@@ -42,14 +42,10 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         };
         self.bytes_to_read = 0;
     }
-    async fn get_raw_bytes(
-        &mut self,
-        count: usize,
-        copy_to_frame_data: bool,
-    ) -> Result<&[u8], ReceiveFrameError> {
+    async fn get_raw_bytes(&mut self, count: usize, copy_to_frame_data: bool) -> Result<&[u8], ReceiveFrameError> {
         if self.raw_data.is_empty() {
             let with_timeout = self.bytes_to_read != 0;
-            read_bytes(&mut self.reader, &mut self.raw_data, with_timeout).await?;
+            read_raw_data(&mut self.reader, &mut self.raw_data, with_timeout).await?;
         }
         let n = min(count, self.raw_data.bytes_available());
         let data = &self.raw_data.data[self.raw_data.consumed..self.raw_data.consumed + n];
@@ -362,5 +358,21 @@ use super::*;
                 assert!(frame.is_ok());
             }
         }
+    }
+    #[async_std::test]
+    async fn test_read_faulty_frame_by_chunks() {
+        init_log();
+        for chunks in [
+            // <1:1,8:5,9:"foo/bar",10:"baz">i{1:"hello"}
+            // invalid protocol
+            vec![
+                from_hex("21 10 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+            ],
+        ] {
+            let mut rd = StreamFrameReader::new(Chunks { chunks });
+            let frame = rd.receive_frame().await;
+            debug!("{:?}", frame);
+            assert!(frame.is_err());
+        };
     }
 }

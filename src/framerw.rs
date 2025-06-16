@@ -37,19 +37,19 @@ const RAW_DATA_LEN: usize = 1024 * 4;
 pub(crate) struct RawData {
     pub(crate) data: [u8; RAW_DATA_LEN],
     pub(crate) consumed: usize,
-    pub(crate) count: usize,
+    pub(crate) length: usize,
 }
 impl RawData {
     pub(crate) fn new() -> Self {
         Self {
             data: [0; RAW_DATA_LEN],
             consumed: 0,
-            count: 0,
+            length: 0,
         }
     }
     pub(crate) fn bytes_available(&self) -> usize {
-        assert!(self.count >= self.consumed);
-        self.count - self.consumed
+        assert!(self.length >= self.consumed);
+        self.length - self.consumed
     }
     pub(crate) fn is_empty(&self) -> bool {
         self.bytes_available() == 0
@@ -137,7 +137,7 @@ pub trait FrameReader {
         Ok(msg)
     }
 }
-pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data: &mut RawData, with_timeout: bool) -> Result<(), ReceiveFrameError> {
+pub(crate) async fn read_raw_data<R: AsyncRead + Unpin + Send>(reader: &mut R, data: &mut RawData, with_timeout: bool) -> Result<(), ReceiveFrameError> {
     let n = if with_timeout {
         match reader.read(&mut data.data).timeout(futures_time::time::Duration::from_secs(5)).await {
             Ok(n) => { n }
@@ -156,7 +156,7 @@ pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data
             log!(target: "RpcData", Level::Debug, "data received -------------------------\n{}", hex_dump(&data.data[0 .. n]));
         }
         data.consumed = 0;
-        data.count = n;
+        data.length = n;
         Ok(())
     }
 }
