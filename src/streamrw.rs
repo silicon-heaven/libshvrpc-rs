@@ -1,5 +1,5 @@
 use crate::framerw::{
-    format_peer_id, read_raw_data, serialize_meta, FrameData, FrameReader, FrameReaderPrivate,
+    format_peer_id, read_raw_data, serialize_meta, FrameReader, FrameReaderPrivate,
     FrameWriter, RawData, ReceiveFrameError,
 };
 use crate::rpcframe::RpcFrame;
@@ -16,7 +16,6 @@ pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
     peer_id: PeerId,
     reader: R,
     bytes_to_read: usize,
-    frame_data: FrameData,
     raw_data: RawData,
 }
 impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
@@ -25,24 +24,10 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
             peer_id: 0,
             reader,
             bytes_to_read: 0,
-            frame_data: FrameData {
-                complete: false,
-                meta: None,
-                data: vec![],
-            },
             raw_data: RawData::new(),
         }
     }
-    fn reset_frame(&mut self) {
-        //debug!("RESET FRAME");
-        self.frame_data = FrameData {
-            complete: false,
-            meta: None,
-            data: vec![],
-        };
-        self.bytes_to_read = 0;
-    }
-    async fn get_raw_bytes(&mut self, count: usize, copy_to_frame_data: bool) -> Result<&[u8], ReceiveFrameError> {
+    async fn get_raw_bytes(&mut self, count: usize) -> Result<&[u8], ReceiveFrameError> {
         if self.raw_data.is_empty() {
             let with_timeout = self.bytes_to_read != 0;
             read_raw_data(&mut self.reader, &mut self.raw_data, with_timeout).await?;
@@ -50,51 +35,42 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         let n = min(count, self.raw_data.bytes_available());
         let data = &self.raw_data.data[self.raw_data.consumed..self.raw_data.consumed + n];
         self.raw_data.consumed += n;
-        if copy_to_frame_data {
-            self.frame_data.data.extend_from_slice(data);
-            self.bytes_to_read -= data.len();
-        }
+        assert!(self.raw_data.consumed <= self.raw_data.length);
         Ok(data)
     }
     async fn get_raw_byte(&mut self) -> Result<u8, ReceiveFrameError> {
-        let data = self.get_raw_bytes(1, false).await?;
+        let data = self.get_raw_bytes(1).await?;
         Ok(data[0])
     }
-    async fn get_frame_data_bytes(&mut self) -> Result<(), ReceiveFrameError> {
-        if self.bytes_to_read == 0 {
-            let mut lendata: Vec<u8> = vec![];
-            let frame_len = loop {
-                lendata.push(self.get_raw_byte().await?);
-                let mut buffrd = BufReader::new(&lendata[..]);
-                let mut rd = ChainPackReader::new(&mut buffrd);
-                match rd.read_uint_data() {
-                    Ok(len) => break len as usize,
-                    Err(err) => {
-                        let ReadError { reason, .. } = err;
-                        match reason {
-                            ReadErrorReason::UnexpectedEndOfStream => continue,
-                            ReadErrorReason::InvalidCharacter => {
-                                return Err(ReceiveFrameError::FramingError(
-                                    "Cannot read frame length, invalid byte received".into(),
-                                ))
-                            }
+    async fn get_frame_bytes_impl(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
+        let mut lendata: Vec<u8> = vec![];
+        let frame_len = loop {
+            lendata.push(self.get_raw_byte().await?);
+            let mut buffrd = BufReader::new(&lendata[..]);
+            let mut rd = ChainPackReader::new(&mut buffrd);
+            match rd.read_uint_data() {
+                Ok(len) => break len as usize,
+                Err(err) => {
+                    let ReadError { reason, .. } = err;
+                    match reason {
+                        ReadErrorReason::UnexpectedEndOfStream => continue,
+                        ReadErrorReason::InvalidCharacter => {
+                            return Err(ReceiveFrameError::FramingError(
+                                "Cannot read frame length, invalid byte received".into(),
+                            ))
                         }
                     }
-                };
+                }
             };
-            //println!("frame len: {frame_len}");
-            self.reset_frame();
-            self.bytes_to_read = frame_len;
-            self.frame_data.data.clear();
-            self.frame_data.data.reserve(frame_len);
+        };
+        let mut data = Vec::with_capacity(frame_len);
+        let mut bytes_to_read = frame_len;
+        while bytes_to_read > 0 {
+            let bytes = self.get_raw_bytes(self.bytes_to_read).await?;
+            bytes_to_read -= bytes.len();
+            data.extend_from_slice(bytes);
         }
-        self.get_raw_bytes(self.bytes_to_read, true).await?;
-        //debug!("{}/{} byte: {:#02x}", self.frame_data.data.len(), self.frame_len, b);
-        if self.bytes_to_read == 0 {
-            self.frame_data.complete = true;
-            //debug!("COMPLETE");
-        }
-        Ok(())
+        Ok(data)
     }
 }
 #[async_trait]
@@ -102,20 +78,10 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
     fn peer_id(&self) -> PeerId {
         self.peer_id
     }
-    async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError> {
-        self.get_frame_data_bytes().await
+    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
+        self.get_frame_bytes_impl().await
     }
 
-    fn frame_data_ref_mut(&mut self) -> &mut FrameData {
-        &mut self.frame_data
-    }
-    fn frame_data_ref(&self) -> &FrameData {
-        &self.frame_data
-    }
-
-    fn reset_frame_data(&mut self) {
-        self.reset_frame()
-    }
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {

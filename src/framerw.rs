@@ -1,8 +1,7 @@
 use std::io::BufReader;
-use std::mem::take;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncReadExt};
-use log::{debug, log, log_enabled, Level};
+use log::{*};
 use crate::rpcframe::{Protocol, RpcFrame};
 use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
@@ -55,11 +54,6 @@ impl RawData {
         self.bytes_available() == 0
     }
 }
-pub(crate) struct FrameData {
-    pub(crate) complete: bool,
-    pub(crate) meta: Option<MetaMap>,
-    pub(crate) data: Vec<u8>,
-}
 pub(crate) fn format_peer_id(peer_id: PeerId) -> String {
     if peer_id > 0 {
         format!("peer:{peer_id}")
@@ -70,60 +64,43 @@ pub(crate) fn format_peer_id(peer_id: PeerId) -> String {
 #[async_trait]
 pub(crate) trait FrameReaderPrivate {
     fn peer_id(&self) -> PeerId;
-    async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError>;
-    fn frame_data_ref_mut(&mut self) -> &mut FrameData;
-    fn frame_data_ref(&self) -> &FrameData;
-    fn reset_frame_data(&mut self);
+    /// Read all the frame raw data
+    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError>;
     async fn try_receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        debug!("receive_frame_or_meta_inner, frame completed: {}", self.frame_data_ref().complete);
-        loop {
-            if !self.frame_data_ref().complete {
-                self.get_bytes().await?;
-            }
-            if self.frame_data_ref().meta.is_none() {
-                assert!(!self.frame_data_ref().data.is_empty());
-                let proto = self.frame_data_ref().data[0];
-                if proto == Protocol::ResetSession as u8 {
-                    self.frame_data_ref_mut().data.drain(..1);
-                    self.reset_frame_data();
-                    log!(target: "RpcMsg", Level::Debug, "R==> {} RESET_SESSION", format_peer_id(self.peer_id()));
-                    return Ok(RpcFrame::new_reset_session())
-                }
-                if proto != Protocol::ChainPack as u8 {
-                    return Err(ReceiveFrameError::FramingError(format!("Invalid protocol type received {:#02x}.", proto)));
-                }
-                let mut buffrd = BufReader::new(&self.frame_data_ref().data[1..]);
-                let mut rd = ChainPackReader::new(&mut buffrd);
-                if let Ok(Some(meta)) = rd.try_read_meta() {
-                    let pos = rd.position() + 1;
-                    self.frame_data_ref_mut().data.drain(..pos);
-                    self.frame_data_ref_mut().meta = Some(meta);
-                    //debug!("\tMETA");
-                } else {
-                    // incomplete meta received
-                }
-                continue;
-            }
-            if self.frame_data_ref().complete {
-                assert!(self.frame_data_ref().meta.is_some());
-                let frame = RpcFrame {
-                    protocol: Protocol::ChainPack,
-                    meta: take(&mut self.frame_data_ref_mut().meta).unwrap(),
-                    data: take(&mut self.frame_data_ref_mut().data),
-                };
-                self.reset_frame_data();
-                //debug!("\tFRAME");
-                log!(target: "RpcMsg", Level::Debug, "R==> {} {}", format_peer_id(self.peer_id()), &frame);
-                return Ok(frame)
-            }
+        let mut data = self.get_frame_bytes().await?;
+        assert!(!data.is_empty());
+        let proto = data[0];
+        if proto == Protocol::ResetSession as u8 {
+            log!(target: "RpcMsg", Level::Debug, "R==> {} RESET_SESSION", format_peer_id(self.peer_id()));
+            return Ok(RpcFrame::new_reset_session())
         }
+        if proto != Protocol::ChainPack as u8 {
+            return Err(ReceiveFrameError::FramingError(format!("Invalid protocol type received {:#02x}.", proto)));
+        }
+        let mut buffrd = BufReader::new(&data[1..]);
+        let mut rd = ChainPackReader::new(&mut buffrd);
+        let meta = match rd.try_read_meta() {
+            Ok(m) => {
+                if let Some(meta) = m {
+                    meta
+                } else {
+                    return Err(ReceiveFrameError::FramingError("Incomplete frame meta received.".into()))
+                }
+            }
+            Err(e) => {
+                return Err(ReceiveFrameError::FramingError(format!("Frame meta parse error: {}.", e)));
+            }
+        };
+        let pos = rd.position();// + 1;
+        data.drain(..pos);
+        Ok(RpcFrame {
+            protocol: Protocol::ChainPack,
+            meta,
+            data,
+        })
     }
     async fn receive_frame_private(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        let ret = self.try_receive_frame().await;
-        if ret.is_err() {
-            self.reset_frame_data();
-        }
-        ret
+        self.try_receive_frame().await
     }
 }
 #[async_trait]

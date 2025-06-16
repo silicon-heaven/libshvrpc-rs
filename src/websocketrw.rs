@@ -1,5 +1,5 @@
 use crate::framerw::{
-    format_peer_id, serialize_meta, FrameData, FrameReader, FrameReaderPrivate,
+    format_peer_id, serialize_meta, FrameReader, FrameReaderPrivate,
     FrameWriter, ReceiveFrameError,
 };
 use crate::rpcframe::RpcFrame;
@@ -9,31 +9,18 @@ use std::io::BufReader;
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use log::*;
 use shvproto::ChainPackWriter;
+use tungstenite::Message;
 
 pub struct WebSocketFrameReader<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> {
     peer_id: PeerId,
     reader: R,
-    frame_data: FrameData,
 }
 impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> WebSocketFrameReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
             peer_id: 0,
             reader,
-            frame_data: FrameData {
-                complete: false,
-                meta: None,
-                data: vec![],
-            },
         }
-    }
-    fn reset_frame(&mut self) {
-        //debug!("RESET FRAME");
-        self.frame_data = FrameData {
-            complete: false,
-            meta: None,
-            data: vec![],
-        };
     }
 }
 #[async_trait]
@@ -42,7 +29,7 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
         self.peer_id
     }
 
-    async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError> {
+    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
         loop {
             // Every read yields one WebSocket message
             let msg = self.reader
@@ -69,28 +56,16 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                             )
                         );
                     }
-                    self.frame_data.complete = true;
-                    self.frame_data.meta = None;
-                    self.frame_data.data = frame.into();
-                    break;
+                    return Ok(frame.to_vec());
                 }
                 tungstenite::Message::Text(utf8_bytes) =>
                     warn!("Received unsupported Text message on a WebSocket: {}", utf8_bytes),
-                _ => { }
+                Message::Ping(_) => {}
+                Message::Pong(_) => {}
+                Message::Close(_) => {}
+                Message::Frame(_) => {}
             };
         }
-        Ok(())
-    }
-
-    fn frame_data_ref_mut(&mut self) -> &mut FrameData {
-        &mut self.frame_data
-    }
-    fn frame_data_ref(&self) -> &FrameData {
-        &self.frame_data
-    }
-
-    fn reset_frame_data(&mut self) {
-        self.reset_frame()
     }
 }
 #[async_trait]

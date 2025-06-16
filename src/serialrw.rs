@@ -1,14 +1,13 @@
 use crate::framerw::{
-    format_peer_id, read_raw_data, FrameData, FrameReader, FrameReaderPrivate, RawData,
+    format_peer_id, read_raw_data, FrameReader, FrameReaderPrivate, RawData,
 };
 use crate::framerw::{serialize_meta, FrameWriter, ReceiveFrameError};
 use crate::rpcframe::{RpcFrame};
 use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
-use crc::{Crc, CRC_32_ISO_HDLC};
+use crc::{Crc, Digest, CRC_32_ISO_HDLC};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use log::*;
-use std::mem::replace;
 use shvproto::util::hex_dump;
 
 const STX: u8 = 0xA2;
@@ -20,23 +19,12 @@ const ESTX: u8 = 0x02;
 const EETX: u8 = 0x03;
 const EATX: u8 = 0x04;
 const EESC: u8 = 0x0A;
-fn is_byte_available(raw_data: &RawData) -> bool {
-    if raw_data.bytes_available() == 0 {
-        false
-    } else if raw_data.bytes_available() == 1 {
-        raw_data.data[raw_data.consumed] != crate::serialrw::ESC
-    } else {
-        true
-    }
-}
 
 pub struct SerialFrameReader<R: AsyncRead + Unpin + Send> {
     peer_id: PeerId,
     reader: R,
     with_crc: bool,
-    crc_digest: crc::Digest<'static, u32>,
-    has_stx: bool,
-    frame_data: FrameData,
+    // crc_digest: crc::Digest<'static, u32>,
     raw_data: RawData,
 }
 
@@ -50,37 +38,16 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             peer_id: 0,
             reader,
             with_crc: false,
-            crc_digest: CRC_32.digest(),
-            has_stx: false,
-            frame_data: FrameData {
-                complete: false,
-                meta: None,
-                data: vec![],
-            },
+            // crc_digest: CRC_32.digest(),
             raw_data: RawData::new(),
         }
-    }
-    fn reset_frame(&mut self, has_stx: bool) {
-        self.frame_data = FrameData {
-            complete: false,
-            meta: None,
-            data: vec![],
-        };
-        self.has_stx = has_stx;
-        self.crc_digest = CRC_32.digest();
     }
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
         self
     }
-    fn update_crc_digest(&mut self, b: u8) {
-        if self.with_crc {
-            self.crc_digest.update(&[b]);
-        }
-    }
-    async fn get_raw_byte(&mut self) -> Result<u8, ReceiveFrameError> {
+    async fn get_raw_byte(&mut self, with_timeout: bool) -> Result<u8, ReceiveFrameError> {
         if self.raw_data.bytes_available() == 0 {
-            let with_timeout = self.has_stx;
             read_raw_data(&mut self.reader, &mut self.raw_data, with_timeout).await?;
         }
         let b = self.raw_data.data[self.raw_data.consumed];
@@ -107,98 +74,100 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         };
         Ok(b)
     }
-    async fn get_frame_data_byte(&mut self) -> Result<(), ReceiveFrameError> {
-        if !self.has_stx {
-            loop {
-                if self.get_raw_byte().await? == STX {
-                    self.reset_frame(true);
-                    break;
-                }
-            }
-        }
-        match self.get_raw_byte().await? {
-            STX => {
-                self.unget_stx();
-                return Err(ReceiveFrameError::FramingError(
-                    "Incomplete frame, new STX received within data.".into(),
-                ));
-            }
-            ETX => {
-                if self.with_crc {
-                    let mut crc_data = [0u8; 4];
-                    for crc_b in &mut crc_data {
-                        let b = match self.get_raw_byte().await? {
-                            STX => {
-                                self.unget_stx();
-                                return Err(ReceiveFrameError::FramingError(
-                                    "STX received in CRC.".into(),
-                                ));
-                            }
-                            ESC => Self::unescape_byte(self.get_raw_byte().await?)?,
-                            ATX => {
-                                return Err(ReceiveFrameError::FramingError(
-                                    "ATX received in CRC.".into(),
-                                ));
-                            }
-                            ETX => {
-                                return Err(ReceiveFrameError::FramingError(
-                                    "ETX received in CRC.".into(),
-                                ));
-                            }
-                            b => b,
-                        };
-                        *crc_b = b;
-                    }
-                    fn as_u32_be(array: &[u8; 4]) -> u32 {
-                        ((array[0] as u32) << 24)
-                            + ((array[1] as u32) << 16)
-                            + ((array[2] as u32) << 8)
-                            + (array[3] as u32)
-                    }
-                    let crc1 = as_u32_be(&crc_data);
-                    let digest = replace(&mut self.crc_digest, CRC_32.digest());
-                    let crc2 = digest.finalize();
-                    //info!("CRC1 {:#04x}", crc1);
-                    //info!("CRC2 {:#04x}", crc2);
-                    if crc1 != crc2 {
-                        log!(target: "Serial", Level::Warn, "CRC error");
-                        return Err(ReceiveFrameError::FramingError("CRC check error.".into()));
-                    }
-                }
-                self.frame_data.complete = true;
-                return Ok(());
-            }
-            ATX => {
-                return Err(ReceiveFrameError::FramingError(
-                    "ATX received, aborting current frame.".into(),
-                ))
-            }
-            ESC => {
-                self.update_crc_digest(ESC);
-                let b = self.get_raw_byte().await?;
-                if b == STX {
-                    self.unget_stx();
-                    return Err(ReceiveFrameError::FramingError(
-                        "Incomplete frame, new STX received within escaped data.".into(),
-                    ));
-                }
-                self.update_crc_digest(b);
-                let ub = Self::unescape_byte(b)?;
-                self.frame_data.data.push(ub)
-            }
-            b => {
-                self.update_crc_digest(b);
-                self.frame_data.data.push(b)
+    async fn get_frame_bytes_impl(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
+        let mut crc_digest = if self.with_crc { Some(CRC_32.digest()) } else { None };
+        let update_crc_digest = |crc_digest: &mut Option<Digest<u32>>, b: u8| {
+            if let Some(crc_digest) = crc_digest {
+                crc_digest.update(&[b]);
             }
         };
-        Ok(())
+
+        let mut data = vec![];
+        while self.get_raw_byte(false).await? != STX {}
+        loop {
+            match self.get_raw_byte(true).await? {
+                STX => {
+                    self.unget_stx();
+                    return Err(ReceiveFrameError::FramingError(
+                        "Incomplete frame, new STX received within data.".into(),
+                    ));
+                }
+                ETX => {
+                    if let Some(crc_digest) = crc_digest {
+                        let mut crc_data = [0u8; 4];
+                        for crc_b in &mut crc_data {
+                            let b = match self.get_raw_byte(true).await? {
+                                STX => {
+                                    self.unget_stx();
+                                    return Err(ReceiveFrameError::FramingError(
+                                        "STX received in CRC.".into(),
+                                    ));
+                                }
+                                ESC => Self::unescape_byte(self.get_raw_byte(true).await?)?,
+                                ATX => {
+                                    return Err(ReceiveFrameError::FramingError(
+                                        "ATX received in CRC.".into(),
+                                    ));
+                                }
+                                ETX => {
+                                    return Err(ReceiveFrameError::FramingError(
+                                        "ETX received in CRC.".into(),
+                                    ));
+                                }
+                                b => b,
+                            };
+                            *crc_b = b;
+                        }
+                        fn as_u32_be(array: &[u8; 4]) -> u32 {
+                            ((array[0] as u32) << 24)
+                                + ((array[1] as u32) << 16)
+                                + ((array[2] as u32) << 8)
+                                + (array[3] as u32)
+                        }
+                        let crc1 = as_u32_be(&crc_data);
+                        // let digest = replace(&mut self.crc_digest, CRC_32.digest());
+                        let crc2 = crc_digest.finalize();
+                        //info!("CRC1 {:#04x}", crc1);
+                        //info!("CRC2 {:#04x}", crc2);
+                        if crc1 != crc2 {
+                            log!(target: "Serial", Level::Warn, "CRC error");
+                            return Err(ReceiveFrameError::FramingError("CRC check error.".into()));
+                        }
+                    }
+                    break;
+                }
+                ATX => {
+                    return Err(ReceiveFrameError::FramingError(
+                        "ATX received, aborting current frame.".into(),
+                    ))
+                }
+                ESC => {
+                    update_crc_digest(&mut crc_digest, ESC);
+                    let b = self.get_raw_byte(true).await?;
+                    if b == STX {
+                        self.unget_stx();
+                        return Err(ReceiveFrameError::FramingError(
+                            "Incomplete frame, new STX received within escaped data.".into(),
+                        ));
+                    }
+                    update_crc_digest(&mut crc_digest, b);
+                    let ub = Self::unescape_byte(b)?;
+                    data.push(ub)
+                }
+                b => {
+                    update_crc_digest(&mut crc_digest, b);
+                    data.push(b)
+                }
+            };
+        }
+        Ok(data)
     }
     #[cfg(test)]
     async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
         let mut data: Vec<u8> = Default::default();
-        while let Ok(b) = self.get_raw_byte().await {
+        while let Ok(b) = self.get_raw_byte(false).await {
             let b = match b {
-                ESC => Self::unescape_byte(self.get_raw_byte().await?)?,
+                ESC => Self::unescape_byte(self.get_raw_byte(false).await?)?,
                 b => b,
             };
             data.push(b);
@@ -211,24 +180,8 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for SerialFrameReader<R> {
     fn peer_id(&self) -> PeerId {
         self.peer_id
     }
-    async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError> {
-        loop {
-            self.get_frame_data_byte().await?;
-            if self.frame_data.complete || !is_byte_available(&self.raw_data) {
-                return Ok(());
-            }
-        }
-    }
-    fn frame_data_ref_mut(&mut self) -> &mut FrameData {
-        &mut self.frame_data
-    }
-
-    fn frame_data_ref(&self) -> &FrameData {
-        &self.frame_data
-    }
-
-    fn reset_frame_data(&mut self) {
-        self.reset_frame(false)
+    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
+        self.get_frame_bytes_impl().await
     }
 }
 #[async_trait]
