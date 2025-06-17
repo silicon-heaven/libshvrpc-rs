@@ -60,21 +60,22 @@ fn format_peer_id(peer_id: PeerId) -> String {
         "".to_string()
     }
 }
-#[async_trait]
-pub(crate) trait FrameReaderPrivate {
-    /// Read all the frame raw data
-    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError>;
-    async fn try_receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        let raw_data = self.get_frame_bytes().await?;
-        RpcFrame::from_raw_data(raw_data).map_err(|err| ReceiveFrameError::FramingError(err.to_string()))
-    }
+
+pub(crate) async fn try_receive_frame_base(reader: &mut (impl FrameReader + ?Sized)) -> Result<RpcFrame, ReceiveFrameError> {
+    let raw_data = reader.get_frame_bytes().await?;
+    RpcFrame::from_raw_data(raw_data).map_err(|err| ReceiveFrameError::FramingError(err.to_string()))
 }
+
 #[async_trait]
 pub trait FrameReader {
     fn peer_id(&self) -> PeerId;
-    async fn receive_frame_impl(&mut self) -> Result<RpcFrame, ReceiveFrameError>;
+    /// Read all the frame raw data
+    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError>;
+    async fn try_receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
+        try_receive_frame_base(self).await
+    }
     async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        match self.receive_frame_impl().await {
+        match self.try_receive_frame().await {
             Ok(frame) => {
                log!(target: "RpcMsg", Level::Debug, "R==> {} {}", format_peer_id(self.peer_id()), &frame);
                Ok(frame)

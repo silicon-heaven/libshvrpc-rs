@@ -1,6 +1,4 @@
-use crate::framerw::{
-    read_raw_data, FrameReader, FrameReaderPrivate, RawData,
-};
+use crate::framerw::{read_raw_data, try_receive_frame_base, FrameReader, RawData};
 use crate::framerw::{serialize_meta, FrameWriter, ReceiveFrameError};
 use crate::rpcframe::{RpcFrame};
 use crate::rpcmessage::PeerId;
@@ -179,19 +177,16 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     }
 }
 #[async_trait]
-impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for SerialFrameReader<R> {
-    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
-        self.get_frame_bytes_impl().await
-    }
-}
-#[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
     fn peer_id(&self) -> PeerId {
        self.peer_id
     }
-    async fn receive_frame_impl(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
+    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
+        self.get_frame_bytes_impl().await
+    }
+    async fn try_receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
         loop {
-            match self.try_receive_frame().await {
+            match try_receive_frame_base(self).await {
                 Ok(frame) => return Ok(frame),
                 Err(ReceiveFrameError::FramingError(e)) => {
                     // silently ignore ATX, and CRC erorrs

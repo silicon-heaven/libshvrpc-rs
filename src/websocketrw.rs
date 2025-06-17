@@ -1,5 +1,5 @@
 use crate::framerw::{
-    serialize_meta, FrameReader, FrameReaderPrivate,
+    serialize_meta, FrameReader,
     FrameWriter, ReceiveFrameError,
 };
 use crate::rpcframe::RpcFrame;
@@ -28,7 +28,10 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
     }
 }
 #[async_trait]
-impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> FrameReaderPrivate for WebSocketFrameReader<R> {
+impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> FrameReader for WebSocketFrameReader<R> {
+    fn peer_id(&self) -> PeerId {
+       self.peer_id
+    }
     async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
         loop {
             // Every read yields one WebSocket message
@@ -66,15 +69,6 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                 Message::Frame(_) => {}
             };
         }
-    }
-}
-#[async_trait]
-impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> FrameReader for WebSocketFrameReader<R> {
-    fn peer_id(&self) -> PeerId {
-       self.peer_id
-    }
-    async fn receive_frame_impl(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        self.try_receive_frame().await
     }
 }
 

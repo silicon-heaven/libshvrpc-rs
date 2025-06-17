@@ -1,5 +1,5 @@
 use crate::framerw::{
-    read_raw_data, serialize_meta, FrameReader, FrameReaderPrivate,
+    read_raw_data, serialize_meta, FrameReader,
     FrameWriter, RawData, ReceiveFrameError,
 };
 use crate::rpcframe::RpcFrame;
@@ -75,19 +75,12 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
     }
 }
 #[async_trait]
-impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
-    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
-        self.get_frame_bytes_impl().await
-    }
-
-}
-#[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
     fn peer_id(&self) -> PeerId {
         self.peer_id
     }
-    async fn receive_frame_impl(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        self.try_receive_frame().await
+    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
+        self.get_frame_bytes_impl().await
     }
 }
 
