@@ -176,9 +176,6 @@ pub fn split_glob_on_match<'a>(glob_pattern: &'a str, shv_path: &str) -> Result<
         Ok(None)
     }
 }
-pub fn hex_array(data: &[u8]) -> String {
-    format!("[0x{}]", hex_string(data, Some(",0x")))
-}
 pub fn hex_string(data: &[u8], delim: Option<&str>) -> String {
     let mut ret = "".to_string();
     for b in data {

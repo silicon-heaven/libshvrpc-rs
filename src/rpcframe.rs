@@ -1,15 +1,18 @@
 use std::fmt;
 use std::io::BufReader;
+use anyhow::anyhow;
 use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, RpcValue};
 use shvproto::writer::Writer;
 use shvproto::reader::Reader;
 use crate::{RpcMessage, rpcmessage, RpcMessageMetaTags, rpctype};
+use crate::util::hex_string;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct RpcFrame {
     pub protocol: Protocol,
     pub meta: MetaMap,
-    pub data: Vec<u8>,
+    raw_data: Vec<u8>,
+    data_start: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -25,16 +28,67 @@ impl fmt::Display for Protocol {
         }
     }
 }
+impl PartialEq for RpcFrame {
+    fn eq(&self, other: &Self) -> bool {
+        self.protocol == other.protocol
+            && self.meta == other.meta
+            && self.data() == other.data()
+    }
+}
+
 impl RpcFrame {
-    pub fn new(protocol: Protocol, meta: MetaMap, data: Vec<u8>) -> RpcFrame {
-        RpcFrame { protocol, meta, data }
+    pub fn new(protocol: Protocol, meta: MetaMap, data: Vec<u8>) -> Self {
+        Self {
+            protocol,
+            meta,
+            raw_data: data,
+            data_start: 0
+        }
     }
     pub fn new_reset_session() -> Self {
         Self {
             protocol: Protocol::ResetSession,
             meta: MetaMap::new(),
-            data: vec![],
+            raw_data: vec![],
+            data_start: 0,
         }
+    }
+    pub fn data(&self) -> &[u8] {
+        &self.raw_data[self.data_start..]
+    }
+    pub fn from_raw_data(raw_data: Vec<u8>) -> Result<Self, anyhow::Error> {
+        if raw_data.is_empty() {
+            return Err(anyhow!("Empty data cannot be converted to RpcFrame"));
+        }
+        let proto = raw_data[0];
+        if proto == Protocol::ResetSession as u8 {
+            return Ok(RpcFrame::new_reset_session())
+        }
+        if proto != Protocol::ChainPack as u8 {
+            return Err(anyhow!("Invalid protocol type received {:#02x}.", proto));
+        }
+        let (meta, meta_len) = {
+            let mut buffrd = BufReader::new(&raw_data[1..]);
+            let mut rd = ChainPackReader::new(&mut buffrd);
+            match rd.try_read_meta() {
+                Ok(m) => {
+                    if let Some(meta) = m {
+                        (meta, rd.position())
+                    } else {
+                        return Err(anyhow!("Incomplete frame meta received."))
+                    }
+                }
+                Err(e) => {
+                    return Err(anyhow!("Frame meta parse error: {}.", e));
+                }
+            }
+        };
+        Ok(RpcFrame {
+            protocol: Protocol::ChainPack,
+            meta,
+            raw_data,
+            data_start: meta_len + 1, // meta_len + protocol_type
+        })
     }
     pub fn from_rpcmessage(msg: &RpcMessage) -> crate::Result<RpcFrame> {
         let mut data = Vec::new();
@@ -43,10 +97,10 @@ impl RpcFrame {
             wr.write_value(&msg.as_rpcvalue().value)?;
         }
         let meta = *msg.as_rpcvalue().meta.clone().unwrap_or_default();
-        Ok(RpcFrame { protocol: Protocol::ChainPack, meta, data })
+        Ok(RpcFrame::new(Protocol::ChainPack, meta, data))
     }
     pub fn to_rpcmesage(&self) -> crate::Result<RpcMessage> {
-        let mut buff = BufReader::new(&*self.data);
+        let mut buff = BufReader::new(self.data());
         let value = match &self.protocol {
             Protocol::ChainPack => {
                 let mut rd = ChainPackReader::new(&mut buff);
@@ -78,15 +132,15 @@ impl fmt::Display for RpcFrame {
             write!(fmt, "RESET_SESSION")
         } else {
             write!(fmt, "{}", self.meta)?;
-            if self.data.len() > 256 {
-                write!(fmt, "[ ... {} bytes of data ... ]", self.data.len())
+            if self.data().len() > 256 {
+                write!(fmt, "[ ... {} bytes of data ... ]", self.data().len())
             } else {
-                match RpcValue::from_chainpack(&self.data) {
+                match RpcValue::from_chainpack(self.data()) {
                     Ok(rv) => {
                         write!(fmt, "{}", rv.to_cpon())
                     }
                     Err(e) => {
-                        write!(fmt, "[ unpack error: {} ]", e)
+                        write!(fmt, "[{}] invalid data, unpack error: {}", hex_string(self.data(), Some(" ")), e)
                     }
                 }
             }

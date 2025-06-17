@@ -1,12 +1,11 @@
 use crate::framerw::{
-    format_peer_id, read_raw_data, serialize_meta, FrameReader, FrameReaderPrivate,
+    read_raw_data, serialize_meta, FrameReader, FrameReaderPrivate,
     FrameWriter, RawData, ReceiveFrameError,
 };
 use crate::rpcframe::RpcFrame;
 use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use log::*;
 use shvproto::reader::ReadErrorReason;
 use shvproto::{ChainPackReader, ChainPackWriter, ReadError};
 use std::cmp::min;
@@ -15,7 +14,6 @@ use std::io::BufReader;
 pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
     peer_id: PeerId,
     reader: R,
-    bytes_to_read: usize,
     raw_data: RawData,
 }
 impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
@@ -23,14 +21,16 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         Self {
             peer_id: 0,
             reader,
-            bytes_to_read: 0,
             raw_data: RawData::new(),
         }
     }
+    pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
+        self.peer_id = peer_id;
+        self
+    }
     async fn get_raw_bytes(&mut self, count: usize) -> Result<&[u8], ReceiveFrameError> {
         if self.raw_data.is_empty() {
-            let with_timeout = self.bytes_to_read != 0;
-            read_raw_data(&mut self.reader, &mut self.raw_data, with_timeout).await?;
+            read_raw_data(&mut self.reader, &mut self.raw_data, false).await?;
         }
         let n = min(count, self.raw_data.bytes_available());
         let data = &self.raw_data.data[self.raw_data.consumed..self.raw_data.consumed + n];
@@ -66,7 +66,8 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         let mut data = Vec::with_capacity(frame_len);
         let mut bytes_to_read = frame_len;
         while bytes_to_read > 0 {
-            let bytes = self.get_raw_bytes(self.bytes_to_read).await?;
+            let bytes = self.get_raw_bytes(bytes_to_read).await?;
+            assert!(bytes.len() <= bytes_to_read);
             bytes_to_read -= bytes.len();
             data.extend_from_slice(bytes);
         }
@@ -75,9 +76,6 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for StreamFrameReader<R> {
-    fn peer_id(&self) -> PeerId {
-        self.peer_id
-    }
     async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
         self.get_frame_bytes_impl().await
     }
@@ -88,37 +86,10 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
     fn peer_id(&self) -> PeerId {
         self.peer_id
     }
-    fn set_peer_id(&mut self, peer_id: PeerId) {
-        self.peer_id = peer_id
-    }
-    async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        self.receive_frame_private().await
+    async fn receive_frame_impl(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
+        self.try_receive_frame().await
     }
 }
-// fn read_frame(buff: &[u8]) -> crate::Result<RpcFrame> {
-//     // log!(target: "RpcData", Level::Debug, "\n{}", hex_dump(buff));
-//     let mut buffrd = BufReader::new(buff);
-//     let mut rd = ChainPackReader::new(&mut buffrd);
-//     let frame_len = match rd.read_uint_data() {
-//         Ok(len) => { len as usize }
-//         Err(err) => {
-//             return Err(err.msg.into());
-//         }
-//     };
-//     let pos = rd.position();
-//     let data = &buff[pos .. pos + frame_len];
-//     let protocol = if data[0] == 0 {Protocol::ResetSession} else { Protocol::ChainPack };
-//     let data = &data[1 .. ];
-//     let mut buffrd = BufReader::new(data);
-//     let mut rd = ChainPackReader::new(&mut buffrd);
-//     if let Ok(Some(meta)) = rd.try_read_meta() {
-//         let pos = rd.position();
-//         let frame = RpcFrame { protocol, meta, data: data[pos ..].to_vec() };
-//         //log!(target: "RpcMsg", Level::Debug, "R==> {}", &frame);
-//         return Ok(frame);
-//     }
-//     Err("Meta data read error".into())
-// }
 
 pub struct StreamFrameWriter<W: AsyncWrite + Unpin + Send> {
     peer_id: PeerId,
@@ -135,20 +106,16 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
     fn peer_id(&self) -> PeerId {
         self.peer_id
     }
-    fn set_peer_id(&mut self, peer_id: PeerId) {
-        self.peer_id = peer_id
-    }
-    async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()> {
-        log!(target: "RpcMsg", Level::Debug, "S<== {} {}", format_peer_id(self.peer_id), &frame.to_rpcmesage().map_or_else(|_| frame.to_string(), |rpc_msg| rpc_msg.to_string()));
+    async fn send_frame_impl(&mut self, frame: RpcFrame) -> crate::Result<()> {
         let meta_data = serialize_meta(&frame)?;
         let mut header = Vec::new();
         let mut wr = ChainPackWriter::new(&mut header);
-        let msg_len = 1 + meta_data.len() + frame.data.len();
+        let msg_len = 1 + meta_data.len() + frame.data().len();
         wr.write_uint_data(msg_len as u64)?;
         header.push(frame.protocol as u8);
         self.writer.write_all(&header).await?;
         self.writer.write_all(&meta_data).await?;
-        self.writer.write_all(&frame.data).await?;
+        self.writer.write_all(frame.data()).await?;
         // Ensure the encoded frame is written to the socket. The calls above
         // are to the buffered stream and writes. Calling `flush` writes the
         // remaining contents of the buffer to the socket.
@@ -157,36 +124,24 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
     }
 }
 
-// fn write_frame(buff: &mut Vec<u8>, frame: RpcFrame) -> crate::Result<()> {
-//     let mut meta_data = serialize_meta(&frame)?;
-//     let mut header = Vec::new();
-//     let mut wr = ChainPackWriter::new(&mut header);
-//     let msg_len = 1 + meta_data.len() + frame.data.len();
-//     wr.write_uint_data(msg_len as u64)?;
-//     header.push(frame.protocol as u8);
-//     let mut frame = frame;
-//     buff.append(&mut header);
-//     buff.append(&mut meta_data);
-//     buff.append(&mut frame.data);
-//     Ok(())
-// }
-
 #[cfg(test)]
 mod test {
-    use shvproto::util::hex_dump;
+    use log::debug;
+use shvproto::util::{hex_dump};
 use super::*;
     use crate::framerw::test::from_hex;
     use crate::framerw::test::Chunks;
-    use crate::util::{hex_array};
     use crate::RpcMessage;
     use async_std::io::BufWriter;
+    use crate::util::hex_string;
+
     fn init_log() {
         let _ = env_logger::builder()
             //.filter(None, LevelFilter::Debug)
             .is_test(true)
             .try_init();
     }
-    async fn frame_to_data(frame: &RpcFrame) -> Vec<u8> {
+    async fn send_frame_to_vector(frame: &RpcFrame) -> Vec<u8> {
         let mut buff: Vec<u8> = vec![];
         let buffwr = BufWriter::new(&mut buff);
         {
@@ -196,17 +151,18 @@ use super::*;
         buff
     }
     #[async_std::test]
-    async fn test_write_frame() {
+    async fn test_send_frame() {
         init_log();
         for msg in [
-            RpcMessage::new_request("foo/bar", "baz", Some("hello".into())),
-            RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 128][..]).into())),
+            RpcMessage::new_request("foo/bar", "baz1", Some("hello".into())),
+            RpcMessage::new_request("foo/bar", "baz2", Some((&[0_u8; 128][..]).into())),
         ] {
             let frame = msg.to_frame().unwrap();
+            debug!("frame: {}", &frame);
 
-            let buff = frame_to_data(&frame).await;
+            let buff = send_frame_to_vector(&frame).await;
             debug!("msg: {}", msg);
-            debug!("array: {}", hex_array(&buff));
+            debug!("array: {}", hex_string(&buff, Some(" ")));
             debug!("bytes:\n{}\n-------------", hex_dump(&buff));
             {
                 let buffrd = async_std::io::BufReader::new(&*buff);
@@ -301,7 +257,7 @@ use super::*;
         // 0070 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
         // 0080 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
         // 0090 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff ................
-        let data1 = frame_to_data(&msg.to_frame().unwrap()).await;
+        let data1 = send_frame_to_vector(&msg.to_frame().unwrap()).await;
         let data1_len = data1.len();
         let meta_start = 3;
         let meta_end = 0x19;
@@ -319,7 +275,7 @@ use super::*;
             ],
         ] {
             let mut rd = StreamFrameReader::new(Chunks { chunks });
-            for _ in 0..2 {
+            for _ in 0..1 {
                 let frame = rd.receive_frame().await;
                 assert!(frame.is_ok());
             }

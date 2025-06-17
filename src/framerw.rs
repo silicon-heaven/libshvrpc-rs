@@ -1,9 +1,8 @@
-use std::io::BufReader;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncReadExt};
 use log::{*};
 use crate::rpcframe::{Protocol, RpcFrame};
-use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
+use shvproto::{ChainPackWriter, MetaMap, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{PeerId, RpcError, RpcErrorCode, RqId};
 use futures_time::future::FutureExt;
@@ -54,7 +53,7 @@ impl RawData {
         self.bytes_available() == 0
     }
 }
-pub(crate) fn format_peer_id(peer_id: PeerId) -> String {
+fn format_peer_id(peer_id: PeerId) -> String {
     if peer_id > 0 {
         format!("peer:{peer_id}")
     } else {
@@ -63,51 +62,26 @@ pub(crate) fn format_peer_id(peer_id: PeerId) -> String {
 }
 #[async_trait]
 pub(crate) trait FrameReaderPrivate {
-    fn peer_id(&self) -> PeerId;
     /// Read all the frame raw data
     async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError>;
     async fn try_receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        let mut data = self.get_frame_bytes().await?;
-        assert!(!data.is_empty());
-        let proto = data[0];
-        if proto == Protocol::ResetSession as u8 {
-            log!(target: "RpcMsg", Level::Debug, "R==> {} RESET_SESSION", format_peer_id(self.peer_id()));
-            return Ok(RpcFrame::new_reset_session())
-        }
-        if proto != Protocol::ChainPack as u8 {
-            return Err(ReceiveFrameError::FramingError(format!("Invalid protocol type received {:#02x}.", proto)));
-        }
-        let mut buffrd = BufReader::new(&data[1..]);
-        let mut rd = ChainPackReader::new(&mut buffrd);
-        let meta = match rd.try_read_meta() {
-            Ok(m) => {
-                if let Some(meta) = m {
-                    meta
-                } else {
-                    return Err(ReceiveFrameError::FramingError("Incomplete frame meta received.".into()))
-                }
-            }
-            Err(e) => {
-                return Err(ReceiveFrameError::FramingError(format!("Frame meta parse error: {}.", e)));
-            }
-        };
-        let pos = rd.position();// + 1;
-        data.drain(..pos);
-        Ok(RpcFrame {
-            protocol: Protocol::ChainPack,
-            meta,
-            data,
-        })
-    }
-    async fn receive_frame_private(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        self.try_receive_frame().await
+        let raw_data = self.get_frame_bytes().await?;
+        RpcFrame::from_raw_data(raw_data).map_err(|err| ReceiveFrameError::FramingError(err.to_string()))
     }
 }
 #[async_trait]
 pub trait FrameReader {
     fn peer_id(&self) -> PeerId;
-    fn set_peer_id(&mut self, peer_id: PeerId);
-    async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError>;
+    async fn receive_frame_impl(&mut self) -> Result<RpcFrame, ReceiveFrameError>;
+    async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
+        match self.receive_frame_impl().await {
+            Ok(frame) => {
+               log!(target: "RpcMsg", Level::Debug, "R==> {} {}", format_peer_id(self.peer_id()), &frame);
+               Ok(frame)
+            }
+            Err(err) => Err(err),
+        }
+    }
     async fn receive_message(&mut self) -> crate::Result<RpcMessage> {
         let frame = self.receive_frame().await?;
         let msg = frame.to_rpcmesage()?;
@@ -140,11 +114,14 @@ pub(crate) async fn read_raw_data<R: AsyncRead + Unpin + Send>(reader: &mut R, d
 #[async_trait]
 pub trait FrameWriter {
     fn peer_id(&self) -> PeerId;
-    fn set_peer_id(&mut self, peer_id: PeerId);
     async fn send_reset_session(&mut self) -> crate::Result<()> {
         self.send_frame(RpcFrame::new_reset_session()).await
     }
-    async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()>;
+    async fn send_frame_impl(&mut self, frame: RpcFrame) -> crate::Result<()>;
+    async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()> {
+        log!(target: "RpcMsg", Level::Debug, "S<== {} {}", format_peer_id(self.peer_id()), &frame.to_rpcmesage().map_or_else(|_| frame.to_string(), |rpc_msg| rpc_msg.to_string()));
+        self.send_frame_impl(frame).await
+    }
     async fn send_message(&mut self, msg: RpcMessage) -> crate::Result<()> {
         self.send_frame(msg.to_frame()?).await?;
         Ok(())

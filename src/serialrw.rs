@@ -1,5 +1,5 @@
 use crate::framerw::{
-    format_peer_id, read_raw_data, FrameReader, FrameReaderPrivate, RawData,
+    read_raw_data, FrameReader, FrameReaderPrivate, RawData,
 };
 use crate::framerw::{serialize_meta, FrameWriter, ReceiveFrameError};
 use crate::rpcframe::{RpcFrame};
@@ -38,9 +38,12 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             peer_id: 0,
             reader,
             with_crc: false,
-            // crc_digest: CRC_32.digest(),
             raw_data: RawData::new(),
         }
+    }
+    pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
+        self.peer_id = peer_id;
+        self
     }
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
@@ -177,9 +180,6 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
 }
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for SerialFrameReader<R> {
-    fn peer_id(&self) -> PeerId {
-        self.peer_id
-    }
     async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
         self.get_frame_bytes_impl().await
     }
@@ -187,14 +187,11 @@ impl<R: AsyncRead + Unpin + Send> FrameReaderPrivate for SerialFrameReader<R> {
 #[async_trait]
 impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
     fn peer_id(&self) -> PeerId {
-        self.peer_id
+       self.peer_id
     }
-    fn set_peer_id(&mut self, peer_id: PeerId) {
-        self.peer_id = peer_id
-    }
-    async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
+    async fn receive_frame_impl(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
         loop {
-            match self.receive_frame_private().await {
+            match self.try_receive_frame().await {
                 Ok(frame) => return Ok(frame),
                 Err(ReceiveFrameError::FramingError(e)) => {
                     // silently ignore ATX, and CRC erorrs
@@ -261,11 +258,7 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
     fn peer_id(&self) -> PeerId {
         self.peer_id
     }
-    fn set_peer_id(&mut self, peer_id: PeerId) {
-        self.peer_id = peer_id
-    }
-    async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()> {
-        log!(target: "RpcMsg", Level::Debug, "S<== {} {}", format_peer_id(self.peer_id), &frame);
+    async fn send_frame_impl(&mut self, frame: RpcFrame) -> crate::Result<()> {
         let crc = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
         let mut digest = if self.with_crc {
             Some(crc.digest())
@@ -277,7 +270,7 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
         let protocol = [frame.protocol as u8];
         self.write_escaped(&mut digest, &protocol).await?;
         self.write_escaped(&mut digest, &meta_data).await?;
-        self.write_escaped(&mut digest, &frame.data).await?;
+        self.write_escaped(&mut digest, frame.data()).await?;
         self.write_bytes(&mut None, &[ETX]).await?;
         if self.with_crc {
             fn u32_to_bytes(x: u32) -> [u8; 4] {
@@ -303,10 +296,10 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for SerialFrameWriter<W> {
 mod test {
     use super::*;
     use crate::framerw::test::from_hex;
-    use crate::util::{hex_string};
     use crate::RpcMessage;
     use async_std::io::BufWriter;
     use crate::rpcframe::Protocol;
+    use crate::util::hex_string;
 
     fn init_log() {
         let _ = env_logger::builder()
@@ -387,7 +380,7 @@ mod test {
                 wr.send_frame(frame.clone()).await.unwrap();
             }
             debug!("msg: {}", msg);
-            debug!("len: {}, hex: {}", buff.len(), hex_string(&buff, Some(" ")));
+            debug!("len: {}, hex: {:?}", buff.len(), hex_string(&buff, Some(" ")));
             debug!("with crc: {with_crc}");
             for prefix in [b"".to_vec(), b"1234".to_vec(), [ATX].to_vec()] {
                 let mut buff2 = prefix;
