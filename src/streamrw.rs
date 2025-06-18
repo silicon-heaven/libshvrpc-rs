@@ -2,7 +2,7 @@ use crate::framerw::{
     read_raw_data, serialize_meta, FrameReader,
     FrameWriter, RawData, ReceiveFrameError,
 };
-use crate::rpcframe::RpcFrame;
+use crate::rpcframe::{Protocol, RpcFrame};
 use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
@@ -63,11 +63,25 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                 }
             };
         };
+        if frame_len == 0 {
+            return Err(ReceiveFrameError::FramingError("Frame length cannot be 0.".into()))
+        }
+        const JUMBO_FRAME_SIZE: usize = 50 * 1024 * 1024;
+        if frame_len > JUMBO_FRAME_SIZE {
+            return Err(ReceiveFrameError::FramingError("Jumbo frames not supported. Jumbo frame threshold is {JUMBO_FRAME_SIZE}.".into()))
+        }
         let mut data = Vec::with_capacity(frame_len);
         let mut bytes_to_read = frame_len;
         while bytes_to_read > 0 {
             let bytes = self.get_raw_bytes(bytes_to_read).await?;
             assert!(bytes.len() <= bytes_to_read);
+            if bytes_to_read == frame_len {
+                // first chunk
+                let protocol = bytes[0];
+                if protocol > Protocol::ChainPack as u8 {
+                    return Err(ReceiveFrameError::FramingError(format!("Invalid protocol type received: {protocol}").into()))
+                }
+            }
             bytes_to_read -= bytes.len();
             data.extend_from_slice(bytes);
         }
