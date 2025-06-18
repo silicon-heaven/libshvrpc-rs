@@ -146,7 +146,7 @@ impl RpcMessage {
         self.set_ival(Key::Abort, Some(param.into()))
     }
 
-    pub fn response(&self) -> Result<Response, RpcError> {
+    pub fn response(&self) -> Result<Response<'_>, RpcError> {
         if let Some(err) = self.ival(Key::Error as i32) {
             return Err(RpcError::from_rpcvalue(err)
                 .unwrap_or(RpcError {
