@@ -68,18 +68,19 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         }
         const JUMBO_FRAME_SIZE: usize = 50 * 1024 * 1024;
         if frame_len > JUMBO_FRAME_SIZE {
-            return Err(ReceiveFrameError::FramingError("Jumbo frames not supported. Jumbo frame threshold is {JUMBO_FRAME_SIZE}.".into()))
+            return Err(ReceiveFrameError::FramingError(format!("Client ID: {}, Jumbo frame of {frame_len} bytes is not supported. Jumbo frame threshold is {JUMBO_FRAME_SIZE} bytes.", self.peer_id)))
         }
         let mut data = Vec::with_capacity(frame_len);
         let mut bytes_to_read = frame_len;
         while bytes_to_read > 0 {
             let bytes = self.get_raw_bytes(bytes_to_read).await?;
+            assert!(!bytes.is_empty()); // get_raw_bytes() never returns 0
             assert!(bytes.len() <= bytes_to_read);
-            if bytes_to_read == frame_len {
-                // first chunk
+            let first_chunk = bytes_to_read == frame_len;
+            if first_chunk {
                 let protocol = bytes[0];
                 if protocol > Protocol::ChainPack as u8 {
-                    return Err(ReceiveFrameError::FramingError(format!("Invalid protocol type received: {protocol}").into()))
+                    return Err(ReceiveFrameError::FramingError(format!("Invalid protocol type received: {protocol}")))
                 }
             }
             bytes_to_read -= bytes.len();
@@ -296,6 +297,23 @@ use super::*;
             // invalid protocol
             vec![
                 from_hex("21 10 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+            ],
+        ] {
+            let mut rd = StreamFrameReader::new(Chunks { chunks });
+            let frame = rd.receive_frame().await;
+            debug!("{:?}", frame);
+            assert!(frame.is_err());
+        };
+    }
+    #[async_std::test]
+    async fn test_read_jumbo_frame() {
+        init_log();
+        for chunks in [
+            vec![
+                // 140737488355328u ==  0x800000000000
+                // 11110010|10000000|00000000|00000000|00000000|00000000|00000000
+                // f2 80 00 00 00 00 00
+                from_hex("f2 80 00 00 00 00 00 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
             ],
         ] {
             let mut rd = StreamFrameReader::new(Chunks { chunks });
