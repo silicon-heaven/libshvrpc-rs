@@ -1,5 +1,5 @@
 use crate::framerw::{
-    format_peer_id, serialize_meta, FrameData, FrameReader, FrameReaderPrivate,
+    serialize_meta, FrameReader,
     FrameWriter, ReceiveFrameError,
 };
 use crate::rpcframe::RpcFrame;
@@ -9,47 +9,37 @@ use std::io::BufReader;
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use log::*;
 use shvproto::ChainPackWriter;
+use tungstenite::Message;
 
 pub struct WebSocketFrameReader<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> {
     peer_id: PeerId,
     reader: R,
-    frame_data: FrameData,
 }
 impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> WebSocketFrameReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
             peer_id: 0,
             reader,
-            frame_data: FrameData {
-                complete: false,
-                meta: None,
-                data: vec![],
-            },
         }
     }
-    fn reset_frame(&mut self) {
-        //debug!("RESET FRAME");
-        self.frame_data = FrameData {
-            complete: false,
-            meta: None,
-            data: vec![],
-        };
+    pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
+        self.peer_id = peer_id;
+        self
     }
 }
 #[async_trait]
-impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> FrameReaderPrivate for WebSocketFrameReader<R> {
+impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> FrameReader for WebSocketFrameReader<R> {
     fn peer_id(&self) -> PeerId {
-        self.peer_id
+       self.peer_id
     }
-
-    async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError> {
+    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
         loop {
             // Every read yields one WebSocket message
             let msg = self.reader
                 .next()
                 .await
-                .ok_or_else(|| ReceiveFrameError::FrameError("End of stream".into()))?
-                .map_err(|e| ReceiveFrameError::FrameError(format!("{e}")))?;
+                .ok_or_else(|| ReceiveFrameError::StreamError("End of stream".into()))?
+                .map_err(|e| ReceiveFrameError::StreamError(format!("{e}")))?;
 
             match msg {
                 tungstenite::Message::Binary(bytes) => {
@@ -58,51 +48,27 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                     let frame_size = rd
                         .read_uint_data()
                         .map_err(|e|
-                            ReceiveFrameError::FrameError(format!("Cannot parse size of a frame: {e}"))
+                            ReceiveFrameError::FramingError(format!("Cannot parse size of a frame: {e}"))
                         )?;
                     let frame_start = rd.position();
                     let frame = &bytes[frame_start..];
                     if frame_size != frame.len() as u64 {
                         return Err(
-                            ReceiveFrameError::FrameError(
+                            ReceiveFrameError::FramingError(
                                 format!("Frame size mismatch: {} != {}", frame_size, frame.len())
                             )
                         );
                     }
-                    self.frame_data.complete = true;
-                    self.frame_data.meta = None;
-                    self.frame_data.data = frame.into();
-                    break;
+                    return Ok(frame.to_vec());
                 }
                 tungstenite::Message::Text(utf8_bytes) =>
                     warn!("Received unsupported Text message on a WebSocket: {}", utf8_bytes),
-                _ => { }
+                Message::Ping(_) => {}
+                Message::Pong(_) => {}
+                Message::Close(_) => {}
+                Message::Frame(_) => {}
             };
         }
-        Ok(())
-    }
-
-    fn frame_data_ref_mut(&mut self) -> &mut FrameData {
-        &mut self.frame_data
-    }
-    fn frame_data_ref(&self) -> &FrameData {
-        &self.frame_data
-    }
-
-    fn reset_frame_data(&mut self) {
-        self.reset_frame()
-    }
-}
-#[async_trait]
-impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> FrameReader for WebSocketFrameReader<R> {
-    fn peer_id(&self) -> PeerId {
-        self.peer_id
-    }
-    fn set_peer_id(&mut self, peer_id: PeerId) {
-        self.peer_id = peer_id
-    }
-    async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        self.receive_frame_private().await
     }
 }
 
@@ -121,31 +87,26 @@ impl<W: Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin + Send> F
     fn peer_id(&self) -> PeerId {
         self.peer_id
     }
-    fn set_peer_id(&mut self, peer_id: PeerId) {
-        self.peer_id = peer_id
-    }
-    async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()> {
-        log!(target: "RpcMsg", Level::Debug, "S<== {} {}", format_peer_id(self.peer_id), &frame.to_rpcmesage().map_or_else(|_| frame.to_string(), |rpc_msg| rpc_msg.to_string()));
+    async fn send_frame_impl(&mut self, frame: RpcFrame) -> crate::Result<()> {
         let meta_data = serialize_meta(&frame)?;
         let mut header = Vec::new();
         let mut wr = ChainPackWriter::new(&mut header);
-        let msg_len = 1 + meta_data.len() + frame.data.len();
+        let msg_len = 1 + meta_data.len() + frame.data().len();
         wr.write_uint_data(msg_len as u64)?;
         header.push(frame.protocol as u8);
-        let mut msg_data = Vec::with_capacity(header.len() + meta_data.len() + frame.data.len());
+        let mut msg_data = Vec::with_capacity(header.len() + meta_data.len() + frame.data().len());
         msg_data.extend_from_slice(&header);
         msg_data.extend_from_slice(&meta_data);
-        msg_data.extend_from_slice(&frame.data);
+        msg_data.extend_from_slice(frame.data());
         let msg = tungstenite::Message::binary(msg_data);
         self.writer.send(msg).await.map_err(|e| format!("Cannot send a WebSocket frame: {e}").into())
     }
 }
 
-#[cfg(all(test, feature = "async-std"))]
+#[cfg(test)]
 mod test {
-    use shvproto::util::hex_dump;
+    use shvproto::util::{hex_array, hex_dump};
     use super::*;
-    use crate::util::hex_array;
     use crate::RpcMessage;
     use std::task::Poll;
 

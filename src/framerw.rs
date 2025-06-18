@@ -1,10 +1,8 @@
-use std::io::BufReader;
-use std::mem::take;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncReadExt};
-use log::{debug, log, log_enabled, Level};
+use log::{*};
 use crate::rpcframe::{Protocol, RpcFrame};
-use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
+use shvproto::{ChainPackWriter, MetaMap, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{PeerId, RpcError, RpcErrorCode, RqId};
 use futures_time::future::FutureExt;
@@ -13,7 +11,7 @@ use shvproto::util::hex_dump;
 #[derive(Debug)]
 pub enum ReceiveFrameError {
     Timeout,
-    FrameError(String),
+    FramingError(String),
     StreamError(String),
 }
 
@@ -21,7 +19,7 @@ impl std::fmt::Display for ReceiveFrameError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ReceiveFrameError::Timeout => write!(f, "Read frame timeout"),
-            ReceiveFrameError::FrameError(s) => write!(f, "FrameError - {s}"),
+            ReceiveFrameError::FramingError(s) => write!(f, "FramingError - {s}"),
             ReceiveFrameError::StreamError(s) => write!(f, "StreamError - {s}"),
         }
     }
@@ -37,107 +35,61 @@ const RAW_DATA_LEN: usize = 1024 * 4;
 pub(crate) struct RawData {
     pub(crate) data: [u8; RAW_DATA_LEN],
     pub(crate) consumed: usize,
-    pub(crate) count: usize,
+    pub(crate) length: usize,
 }
 impl RawData {
     pub(crate) fn new() -> Self {
         Self {
             data: [0; RAW_DATA_LEN],
             consumed: 0,
-            count: 0,
+            length: 0,
         }
     }
     pub(crate) fn bytes_available(&self) -> usize {
-        assert!(self.count >= self.consumed);
-        self.count - self.consumed
+        assert!(self.length >= self.consumed);
+        self.length - self.consumed
     }
     pub(crate) fn is_empty(&self) -> bool {
         self.bytes_available() == 0
     }
 }
-pub(crate) struct FrameData {
-    pub(crate) complete: bool,
-    pub(crate) meta: Option<MetaMap>,
-    pub(crate) data: Vec<u8>,
-}
-pub(crate) fn format_peer_id(peer_id: PeerId) -> String {
+fn format_peer_id(peer_id: PeerId) -> String {
     if peer_id > 0 {
         format!("peer:{peer_id}")
     } else {
         "".to_string()
     }
 }
-#[async_trait]
-pub(crate) trait FrameReaderPrivate {
-    fn peer_id(&self) -> PeerId;
-    async fn get_bytes(&mut self) -> Result<(), ReceiveFrameError>;
-    fn frame_data_ref_mut(&mut self) -> &mut FrameData;
-    fn frame_data_ref(&self) -> &FrameData;
-    fn reset_frame_data(&mut self);
-    async fn try_receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        debug!("receive_frame_or_meta_inner, frame completed: {}", self.frame_data_ref().complete);
-        loop {
-            if !self.frame_data_ref().complete {
-                self.get_bytes().await?;
-            }
-            if self.frame_data_ref().meta.is_none() {
-                assert!(!self.frame_data_ref().data.is_empty());
-                let proto = self.frame_data_ref().data[0];
-                if proto == Protocol::ResetSession as u8 {
-                    self.frame_data_ref_mut().data.drain(..1);
-                    self.reset_frame_data();
-                    log!(target: "RpcMsg", Level::Debug, "R==> {} RESET_SESSION", format_peer_id(self.peer_id()));
-                    return Ok(RpcFrame::new_reset_session())
-                }
-                if proto != Protocol::ChainPack as u8 {
-                    return Err(ReceiveFrameError::FrameError(format!("Invalid protocol type received {:#02x}.", proto)));
-                }
-                let mut buffrd = BufReader::new(&self.frame_data_ref().data[1..]);
-                let mut rd = ChainPackReader::new(&mut buffrd);
-                if let Ok(Some(meta)) = rd.try_read_meta() {
-                    let pos = rd.position() + 1;
-                    self.frame_data_ref_mut().data.drain(..pos);
-                    self.frame_data_ref_mut().meta = Some(meta);
-                    //debug!("\tMETA");
-                } else {
-                    // incomplete meta received
-                }
-                continue;
-            }
-            if self.frame_data_ref().complete {
-                assert!(self.frame_data_ref().meta.is_some());
-                let frame = RpcFrame {
-                    protocol: Protocol::ChainPack,
-                    meta: take(&mut self.frame_data_ref_mut().meta).unwrap(),
-                    data: take(&mut self.frame_data_ref_mut().data),
-                };
-                self.reset_frame_data();
-                //debug!("\tFRAME");
-                log!(target: "RpcMsg", Level::Debug, "R==> {} {}", format_peer_id(self.peer_id()), &frame);
-                return Ok(frame)
-            }
-        }
-    }
-    async fn receive_frame_private(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
-        let ret = self.try_receive_frame().await;
-        if ret.is_err() {
-            self.reset_frame_data();
-        }
-        ret
-    }
+
+pub(crate) async fn try_receive_frame_base(reader: &mut (impl FrameReader + ?Sized)) -> Result<RpcFrame, ReceiveFrameError> {
+    let raw_data = reader.get_frame_bytes().await?;
+    RpcFrame::from_raw_data(raw_data).map_err(|err| ReceiveFrameError::FramingError(err.to_string()))
 }
+
 #[async_trait]
 pub trait FrameReader {
     fn peer_id(&self) -> PeerId;
-    fn set_peer_id(&mut self, peer_id: PeerId);
-    async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError>;
+    /// Read all the frame raw data
+    async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError>;
+    async fn try_receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
+        try_receive_frame_base(self).await
+    }
+    async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
+        match self.try_receive_frame().await {
+            Ok(frame) => {
+               log!(target: "RpcMsg", Level::Debug, "R==> {} {}", format_peer_id(self.peer_id()), &frame);
+               Ok(frame)
+            }
+            Err(err) => Err(err),
+        }
+    }
     async fn receive_message(&mut self) -> crate::Result<RpcMessage> {
         let frame = self.receive_frame().await?;
         let msg = frame.to_rpcmesage()?;
         Ok(msg)
     }
 }
-pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data: &mut RawData, with_timeout: bool) -> Result<(), ReceiveFrameError> {
+pub(crate) async fn read_raw_data<R: AsyncRead + Unpin + Send>(reader: &mut R, data: &mut RawData, with_timeout: bool) -> Result<(), ReceiveFrameError> {
     let n = if with_timeout {
         match reader.read(&mut data.data).timeout(futures_time::time::Duration::from_secs(5)).await {
             Ok(n) => { n }
@@ -156,18 +108,21 @@ pub(crate) async fn read_bytes<R: AsyncRead + Unpin + Send>(reader: &mut R, data
             log!(target: "RpcData", Level::Debug, "data received -------------------------\n{}", hex_dump(&data.data[0 .. n]));
         }
         data.consumed = 0;
-        data.count = n;
+        data.length = n;
         Ok(())
     }
 }
 #[async_trait]
 pub trait FrameWriter {
     fn peer_id(&self) -> PeerId;
-    fn set_peer_id(&mut self, peer_id: PeerId);
     async fn send_reset_session(&mut self) -> crate::Result<()> {
         self.send_frame(RpcFrame::new_reset_session()).await
     }
-    async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()>;
+    async fn send_frame_impl(&mut self, frame: RpcFrame) -> crate::Result<()>;
+    async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()> {
+        log!(target: "RpcMsg", Level::Debug, "S<== {} {}", format_peer_id(self.peer_id()), &frame.to_rpcmesage().map_or_else(|_| frame.to_string(), |rpc_msg| rpc_msg.to_string()));
+        self.send_frame_impl(frame).await
+    }
     async fn send_message(&mut self, msg: RpcMessage) -> crate::Result<()> {
         self.send_frame(msg.to_frame()?).await?;
         Ok(())
@@ -205,7 +160,7 @@ pub fn serialize_meta(frame: &RpcFrame) -> crate::Result<Vec<u8>> {
     Ok(data)
 }
 
-#[cfg(all(test, feature = "async-std"))]
+#[cfg(test)]
 pub(crate) mod test {
     use std::pin::Pin;
     use std::task::{Context, Poll};
