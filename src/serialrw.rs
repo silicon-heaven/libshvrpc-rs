@@ -213,6 +213,10 @@ impl<W: AsyncWrite + Unpin + Send> SerialFrameWriter<W> {
             with_crc: false,
         }
     }
+    pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
+        self.peer_id = peer_id;
+        self
+    }
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
         self
