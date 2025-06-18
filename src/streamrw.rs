@@ -107,6 +107,10 @@ impl<W: AsyncWrite + Unpin + Send> StreamFrameWriter<W> {
     pub fn new(writer: W) -> Self {
         Self { peer_id: 0, writer }
     }
+    pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
+        self.peer_id = peer_id;
+        self
+    }
 }
 
 #[async_trait]
