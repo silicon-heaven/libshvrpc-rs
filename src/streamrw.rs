@@ -11,10 +11,13 @@ use shvproto::{ChainPackReader, ChainPackWriter, ReadError};
 use std::cmp::min;
 use std::io::BufReader;
 
+pub(crate) const DEFAULT_FRAME_SIZE_LIMIT: usize = 50 * 1024 * 1024;
+
 pub struct StreamFrameReader<R: AsyncRead + Unpin + Send> {
     peer_id: PeerId,
     reader: R,
     raw_data: RawData,
+    frame_size_limit: usize,
 }
 impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
     pub fn new(reader: R) -> Self {
@@ -22,12 +25,19 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
             peer_id: 0,
             reader,
             raw_data: RawData::new(),
+            frame_size_limit: DEFAULT_FRAME_SIZE_LIMIT,
         }
     }
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self
     }
+
+    pub fn with_frame_size_limit(mut self, frame_size_limit: usize) -> Self {
+        self.frame_size_limit = frame_size_limit;
+        self
+    }
+
     async fn get_raw_bytes(&mut self, count: usize) -> Result<&[u8], ReceiveFrameError> {
         if self.raw_data.is_empty() {
             read_raw_data(&mut self.reader, &mut self.raw_data, false).await?;
@@ -66,9 +76,8 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         if frame_len == 0 {
             return Err(ReceiveFrameError::FramingError("Frame length cannot be 0.".into()))
         }
-        const JUMBO_FRAME_SIZE: usize = 50 * 1024 * 1024;
-        if frame_len > JUMBO_FRAME_SIZE {
-            return Err(ReceiveFrameError::FramingError(format!("Client ID: {}, Jumbo frame of {frame_len} bytes is not supported. Jumbo frame threshold is {JUMBO_FRAME_SIZE} bytes.", self.peer_id)))
+        if frame_len > self.frame_size_limit() {
+            return Err(ReceiveFrameError::FramingError(format!("Client ID: {}, Jumbo frame of {frame_len} bytes is not supported. Jumbo frame threshold is {} bytes.", self.peer_id, self.frame_size_limit())))
         }
         let mut data = Vec::with_capacity(frame_len);
         let mut bytes_to_read = frame_len;
@@ -94,6 +103,11 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for StreamFrameReader<R> {
     fn peer_id(&self) -> PeerId {
         self.peer_id
     }
+
+    fn frame_size_limit(&self) -> usize {
+        self.frame_size_limit
+    }
+
     async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
         self.get_frame_bytes_impl().await
     }

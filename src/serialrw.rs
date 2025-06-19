@@ -7,6 +7,7 @@ use crc::{Crc, Digest, CRC_32_ISO_HDLC};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use log::*;
 use shvproto::util::hex_dump;
+use crate::streamrw::DEFAULT_FRAME_SIZE_LIMIT;
 
 const STX: u8 = 0xA2;
 const ETX: u8 = 0xA3;
@@ -21,9 +22,9 @@ const EESC: u8 = 0x0A;
 pub struct SerialFrameReader<R: AsyncRead + Unpin + Send> {
     peer_id: PeerId,
     reader: R,
-    with_crc: bool,
-    // crc_digest: crc::Digest<'static, u32>,
     raw_data: RawData,
+    frame_size_limit: usize,
+    with_crc: bool,
 }
 
 // https://reveng.sourceforge.io/crc-catalogue/all.htm#crc.cat.crc-32-iso-hdlc
@@ -35,14 +36,21 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         Self {
             peer_id: 0,
             reader,
-            with_crc: false,
             raw_data: RawData::new(),
+            frame_size_limit: DEFAULT_FRAME_SIZE_LIMIT,
+            with_crc: false,
         }
     }
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self
     }
+
+    pub fn with_frame_size_limit(mut self, frame_size_limit: usize) -> Self {
+        self.frame_size_limit = frame_size_limit;
+        self
+    }
+
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
         self
@@ -83,7 +91,17 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             }
         };
 
+        let peer_id = self.peer_id;
+        let frame_size_limit = self.frame_size_limit();
         let mut data = vec![];
+        let mut push_data_byte = |b: u8| {
+            if data.len() > frame_size_limit {
+                Err(ReceiveFrameError::FramingError(format!("Client ID: {}, Jumbo frame threshold {DEFAULT_FRAME_SIZE_LIMIT} bytes exceeded during read.", peer_id)))
+            } else {
+                data.push(b);
+                Ok(())
+            }
+        };
         while self.get_raw_byte(false).await? != STX {}
         loop {
             match self.get_raw_byte(true).await? {
@@ -153,11 +171,11 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                     }
                     update_crc_digest(&mut crc_digest, b);
                     let ub = Self::unescape_byte(b)?;
-                    data.push(ub)
+                    push_data_byte(ub)?
                 }
                 b => {
                     update_crc_digest(&mut crc_digest, b);
-                    data.push(b)
+                    push_data_byte(b)?
                 }
             };
         }
@@ -181,6 +199,11 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
     fn peer_id(&self) -> PeerId {
        self.peer_id
     }
+
+    fn frame_size_limit(&self) -> usize {
+        self.frame_size_limit
+    }
+
     async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
         self.get_frame_bytes_impl().await
     }
@@ -481,6 +504,48 @@ mod test {
                     let frame = rd.receive_frame().await;
                     debug!("frame: {:?}", &frame);
                     assert!(frame.is_ok());
+                }
+            }
+        }
+    }
+
+    #[async_std::test]
+    async fn test_read_over_frame_size_limit() {
+        init_log();
+        for with_crc in [false, true] {
+            for data in [
+                // msg: <1:1,8:162,9:"foo/bar",10:"baz">i{1:161} - 30 bytes
+                // msg: <1:1,8:1,9:"foo/bar",10:"baz">i{1:1} - 26 bytes
+                from_hex("
+                    STX 01 8b 41 41 48 82 80 ESC ESTX 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 82 80 a1 ff ETX 12 53 57 e5
+                    STX 01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff ETX 44 cc 24 df
+                    "
+                ),
+            ] {
+                debug!("bytes:\n{}\n-------------", hex_dump(&data));
+                {
+                    let buffrd = async_std::io::BufReader::new(&*data);
+                    let mut rd = SerialFrameReader::new(buffrd)
+                        .with_crc_check(with_crc)
+                        .with_frame_size_limit(30);
+                    {
+                        // should read first message with size equal to frame size limit
+                        let frame = rd.receive_frame().await.unwrap();
+                        debug!("frame: {:?}", &frame);
+                        assert_eq!(frame.to_rpcmesage().unwrap().param().unwrap().as_int(), 161);
+                    }
+                }
+                {
+                    let buffrd = async_std::io::BufReader::new(&*data);
+                    let mut rd = SerialFrameReader::new(buffrd)
+                        .with_crc_check(with_crc)
+                        .with_frame_size_limit(29);
+                    {
+                        // should skip first message as too long and return the second one
+                        let frame = rd.receive_frame().await.unwrap();
+                        debug!("frame: {:?}", &frame);
+                        assert_eq!(frame.to_rpcmesage().unwrap().param().unwrap().as_int(), 1);
+                    }
                 }
             }
         }
