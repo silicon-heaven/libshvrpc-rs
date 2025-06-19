@@ -96,7 +96,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         let mut data = vec![];
         let mut push_data_byte = |b: u8| {
             if data.len() > frame_size_limit {
-                Err(ReceiveFrameError::FramingError(format!("Client ID: {}, Jumbo frame threshold {DEFAULT_FRAME_SIZE_LIMIT} bytes exceeded during read.", peer_id)))
+                Err(ReceiveFrameError::FramingError(format!("Client ID: {}, Jumbo frame threshold {} bytes exceeded during read.", peer_id, frame_size_limit)))
             } else {
                 data.push(b);
                 Ok(())
