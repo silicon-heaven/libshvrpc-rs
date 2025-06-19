@@ -10,20 +10,27 @@ use futures::{Sink, SinkExt, Stream, StreamExt};
 use log::*;
 use shvproto::ChainPackWriter;
 use tungstenite::Message;
+use crate::streamrw::DEFAULT_FRAME_SIZE_LIMIT;
 
 pub struct WebSocketFrameReader<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> {
     peer_id: PeerId,
     reader: R,
+    frame_size_limit: usize,
 }
 impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> WebSocketFrameReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
             peer_id: 0,
             reader,
+            frame_size_limit: DEFAULT_FRAME_SIZE_LIMIT,
         }
     }
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
+        self
+    }
+    pub fn with_frame_size_limit(mut self, frame_size_limit: usize) -> Self {
+        self.frame_size_limit = frame_size_limit;
         self
     }
 }
@@ -32,6 +39,11 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
     fn peer_id(&self) -> PeerId {
        self.peer_id
     }
+
+    fn frame_size_limit(&self) -> usize {
+        self.frame_size_limit
+    }
+
     async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
         loop {
             // Every read yields one WebSocket message
@@ -58,6 +70,9 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                                 format!("Frame size mismatch: {} != {}", frame_size, frame.len())
                             )
                         );
+                    }
+                    if frame_size as usize > self.frame_size_limit() {
+                        return Err(ReceiveFrameError::FramingError(format!("Client ID: {}, Jumbo frame of {frame_size} bytes is not supported. Jumbo frame threshold is {} bytes.", self.peer_id, self.frame_size_limit())))
                     }
                     return Ok(frame.to_vec());
                 }

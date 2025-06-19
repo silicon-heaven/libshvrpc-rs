@@ -69,6 +69,7 @@ pub(crate) async fn try_receive_frame_base(reader: &mut (impl FrameReader + ?Siz
 #[async_trait]
 pub trait FrameReader {
     fn peer_id(&self) -> PeerId;
+    fn frame_size_limit(&self) -> usize;
     /// Read all the frame raw data
     async fn get_frame_bytes(&mut self) -> Result<Vec<u8>, ReceiveFrameError>;
     async fn try_receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
