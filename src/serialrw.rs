@@ -76,8 +76,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             EESC => ESC,
             b => {
                 return Err(ReceiveFrameError::FramingError(format!(
-                    "Framing error, invalid escape byte {:#02x}",
-                    b
+                    "Framing error, invalid escape byte {b:#02x}"
                 )));
             }
         };
@@ -96,7 +95,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         let mut data = vec![];
         let mut push_data_byte = |b: u8| {
             if data.len() > frame_size_limit {
-                Err(ReceiveFrameError::FramingError(format!("Client ID: {}, Jumbo frame threshold {} bytes exceeded during read.", peer_id, frame_size_limit)))
+                Err(ReceiveFrameError::FramingError(format!("Client ID: {peer_id}, Jumbo frame threshold {frame_size_limit} bytes exceeded during read.")))
             } else {
                 data.push(b);
                 Ok(())
@@ -213,7 +212,7 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
                 Ok(frame) => return Ok(frame),
                 Err(ReceiveFrameError::FramingError(e)) => {
                     // silently ignore ATX, and CRC erorrs
-                    log!(target: "SerialFrameError", Level::Warn, "Ignoring serial framing error: {}", e);
+                    log!(target: "SerialFrameError", Level::Warn, "Ignoring serial framing error: {e}");
                     continue;
                 }
                 Err(e) => {
@@ -401,7 +400,7 @@ mod test {
                 let mut wr = SerialFrameWriter::new(buffwr).with_crc_check(with_crc);
                 wr.send_frame(frame.clone()).await.unwrap();
             }
-            debug!("msg: {}", msg);
+            debug!("msg: {msg}");
             debug!("len: {}, hex: {:?}", buff.len(), hex_string(&buff, Some(" ")));
             debug!("with crc: {with_crc}");
             for prefix in [b"".to_vec(), b"1234".to_vec(), [ATX].to_vec()] {
@@ -469,7 +468,7 @@ mod test {
                 from_hex("e5"),
             ],
         ] {
-            debug!("hex: {:?}", chunks);
+            debug!("hex: {chunks:?}");
             let mut rd = SerialFrameReader::new(crate::framerw::test::Chunks { chunks }).with_crc_check(true);
             let frame = rd.receive_frame().await;
             debug!("frame: {:?}", &frame);

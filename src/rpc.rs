@@ -81,13 +81,13 @@ impl ShvRI {
     pub fn to_glob(&self) -> Result<Glob, String> {
         Ok(Glob {
             path: Pattern::new(self.path())
-                .map_err(|e| format!("Parse path glob: '{}' error: {}", self, e))?,
+                .map_err(|e| format!("Parse path glob: '{self}' error: {e}"))?,
             method: Pattern::new(self.method())
-                .map_err(|e| format!("Parse method glob: '{}' error: {}", self, e))?,
+                .map_err(|e| format!("Parse method glob: '{self}' error: {e}"))?,
             signal: if let Some(signal) = self.signal() {
                 Some(
                     Pattern::new(signal)
-                        .map_err(|e| format!("Parse signal glob: '{}' error: {}", self, e))?,
+                        .map_err(|e| format!("Parse signal glob: '{self}' error: {e}"))?,
                 )
             } else {
                 None

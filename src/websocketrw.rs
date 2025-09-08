@@ -77,7 +77,7 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                     return Ok(frame.to_vec());
                 }
                 tungstenite::Message::Text(utf8_bytes) =>
-                    warn!("Received unsupported Text message on a WebSocket: {}", utf8_bytes),
+                    warn!("Received unsupported Text message on a WebSocket: {utf8_bytes}"),
                 Message::Ping(_) => {}
                 Message::Pong(_) => {}
                 Message::Close(_) => {}
@@ -180,7 +180,7 @@ mod test {
         ] {
             let frame = msg.to_frame().unwrap();
             let buff = frame_to_data(&frame).await;
-            debug!("msg: {}", msg);
+            debug!("msg: {msg}");
             debug!("array: {}", hex_array(&buff));
             debug!("bytes:\n{}\n-------------", hex_dump(&buff));
             {
@@ -199,7 +199,7 @@ mod test {
         let msg = RpcMessage::new_request("foo/bar", "baz", Some("hello".into()));
         let frame = msg.to_frame().unwrap();
         let buff = frame_to_data(&frame).await;
-        debug!("msg: {}", msg);
+        debug!("msg: {msg}");
         debug!("array: {}", hex_array(&buff));
         debug!("bytes:\n{}\n-------------", hex_dump(&buff));
         let stream = futures::stream::iter([

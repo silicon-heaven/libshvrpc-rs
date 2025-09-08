@@ -122,7 +122,7 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
             .get("nonce")
             .ok_or("Bad nonce")?
             .as_str();
-        debug!("\t nonce received: {}", nonce);
+        debug!("\t nonce received: {nonce}");
         let hash = sha1_password_hash(login_params.password.as_bytes(), nonce.as_bytes());
         let mut login_params = login_params.clone();
         login_params.password = std::str::from_utf8(&hash)?.into();

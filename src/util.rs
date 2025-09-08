@@ -184,7 +184,7 @@ pub fn hex_string(data: &[u8], delim: Option<&str>) -> String {
                 ret += delim;
             }
         }
-        ret += &format!("{:02x}", b);
+        ret += &format!("{b:02x}");
     }
     ret
 }
