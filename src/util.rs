@@ -179,11 +179,10 @@ pub fn split_glob_on_match<'a>(glob_pattern: &'a str, shv_path: &str) -> Result<
 pub fn hex_string(data: &[u8], delim: Option<&str>) -> String {
     let mut ret = "".to_string();
     for b in data {
-        if let Some(delim) = delim {
-            if ret.len() > 1 {
+        if let Some(delim) = delim
+            && ret.len() > 1 {
                 ret += delim;
             }
-        }
         ret += &format!("{b:02x}");
     }
     ret
