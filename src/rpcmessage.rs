@@ -442,7 +442,7 @@ impl Display for RpcErrorCode {
             RpcErrorCode::Unknown => {"Unknown"}
             RpcErrorCode::UserCode => {"UserCode"}
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 impl TryFrom<i32> for RpcErrorCode {
@@ -564,9 +564,9 @@ impl Visitor<'_> for RpcMessageVisitor {
         match RpcValue::from_chainpack(value) {
             Ok(rv) => match RpcMessage::from_rpcvalue(rv) {
                 Ok(msg) => Ok(msg),
-                Err(err) => Err(E::custom(format!("RpcMessage create error: {}", err))),
+                Err(err) => Err(E::custom(format!("RpcMessage create error: {err}"))),
             },
-            Err(err) => Err(E::custom(format!("RpcValue parse error: {}", err))),
+            Err(err) => Err(E::custom(format!("RpcValue parse error: {err}"))),
         }
     }
 }

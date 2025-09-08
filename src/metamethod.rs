@@ -105,7 +105,7 @@ impl TryFrom<&RpcValue> for AccessLevel {
             Value::Int(val) => (*val as i32).try_into(),
             Value::String(val) =>
                 AccessLevel::from_str(val.as_str())
-                .ok_or_else(|| format!("Wrong value of AccessLevel: {}", val)),
+                .ok_or_else(|| format!("Wrong value of AccessLevel: {val}")),
             _ => Err(format!("Wrong RpcValue type for AccessLevel: {}", value.type_name())),
         }
     }

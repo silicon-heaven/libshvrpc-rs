@@ -46,7 +46,7 @@ impl TryFrom<LsResult> for bool {
         if let LsResult::Exists(val) = value {
             Ok(val)
         } else {
-            Err(format!("Cannot convert `ls` result to bool. Actual result: {:?}", value))
+            Err(format!("Cannot convert `ls` result to bool. Actual result: {value:?}"))
         }
     }
 }
@@ -57,7 +57,7 @@ impl TryFrom<LsResult> for Vec<String> {
         if let LsResult::List(val) = value {
             Ok(val)
         } else {
-            Err(format!("Cannot convert `ls` result to Vec<String>. Actual result: {:?}", value))
+            Err(format!("Cannot convert `ls` result to Vec<String>. Actual result: {value:?}"))
         }
     }
 }
@@ -239,7 +239,7 @@ impl TryFrom<DirResult> for bool {
         if let DirResult::Exists(val) = value {
             Ok(val)
         } else {
-            Err(format!("Cannot convert `dir` result to bool. Actual result: {:?}", value))
+            Err(format!("Cannot convert `dir` result to bool. Actual result: {value:?}"))
         }
     }
 }
@@ -250,7 +250,7 @@ impl TryFrom<DirResult> for Vec<MethodInfo> {
         if let DirResult::List(val) = value {
             Ok(val)
         } else {
-            Err(format!("Cannot convert `dir` result to Vec<MethodInfo>. Actual result: {:?}", value))
+            Err(format!("Cannot convert `dir` result to Vec<MethodInfo>. Actual result: {value:?}"))
         }
     }
 }

@@ -187,7 +187,7 @@ use super::*;
             debug!("frame: {}", &frame);
 
             let buff = send_frame_to_vector(&frame).await;
-            debug!("msg: {}", msg);
+            debug!("msg: {msg}");
             debug!("array: {}", hex_string(&buff, Some(" ")));
             debug!("bytes:\n{}\n-------------", hex_dump(&buff));
             {
@@ -319,7 +319,7 @@ use super::*;
         ] {
             let mut rd = StreamFrameReader::new(Chunks { chunks });
             let frame = rd.receive_frame().await;
-            debug!("{:?}", frame);
+            debug!("{frame:?}");
             assert!(frame.is_err());
         };
     }
@@ -336,7 +336,7 @@ use super::*;
         ] {
             let mut rd = StreamFrameReader::new(Chunks { chunks });
             let frame = rd.receive_frame().await;
-            debug!("{:?}", frame);
+            debug!("{frame:?}");
             assert!(frame.is_err());
         };
     }
