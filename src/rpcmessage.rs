@@ -337,7 +337,12 @@ pub trait RpcMessageMetaTags {
         self.set_tag(Tag::Access as i32, Some(RpcValue::from(grant.as_str())));
         self.set_tag(Tag::AccessLevel as i32, Some(RpcValue::from(grant as i32)))
     }
-
+    fn user_id(&self) -> Option<&str> {
+        self.tag(Tag::UserId as i32).map(RpcValue::as_str)
+    }
+    fn set_user_id(&mut self, user_id: &str) -> &mut Self::Target {
+        self.set_tag(Tag::UserId as i32, Some(RpcValue::from(user_id)))
+    }
     fn caller_ids(&self) -> Vec<PeerId> {
         let t = self.tag(Tag::CallerIds as i32);
         match t.map(|rv| &rv.value) {

@@ -13,7 +13,7 @@ pub mod websocketrw;
 pub mod util;
 
 pub use rpcmessage::{RpcMessage, RpcMessageMetaTags};
+pub use rpcframe::RpcFrame;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, Error>;
-
