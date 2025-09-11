@@ -7,6 +7,8 @@ pub mod rpcframe;
 pub mod rpcmessage;
 pub mod rpcdiscovery;
 pub mod serialrw;
+#[cfg(feature = "can")]
+pub mod canrw;
 pub mod streamrw;
 #[cfg(feature = "websocket")]
 pub mod websocketrw;
