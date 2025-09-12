@@ -510,3 +510,105 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use socketcan::{CanFdFrame, CanId, EmbeddedFrame};
+
+    use crate::canrw::{AckFrame, DataFrame, DataFrameHeader, ShvCanFrame, TerminateFrame};
+
+    fn is_first_frame(can_id: u16) -> bool {
+        can_id & (1 << 8) != 0
+    }
+
+    #[test]
+    fn parse_frames() {
+        {
+            const CAN_ID: u16 = 0x124;
+            let frame = CanFdFrame::new(CanId::standard(CAN_ID).unwrap(), &[42]).unwrap();
+            let parsed = ShvCanFrame::try_from(&frame).unwrap();
+
+            assert_eq!(
+                parsed,
+                ShvCanFrame::Terminate(TerminateFrame {
+                    header: DataFrameHeader {
+                        src: CAN_ID as u8,
+                        dst: 42,
+                        first: is_first_frame(CAN_ID),
+                    }
+                })
+            );
+        }
+        {
+            const CAN_ID: u16 = 0x125;
+            let frame = CanFdFrame::new(CanId::standard(CAN_ID).unwrap(), &[7, 99]).unwrap();
+            let parsed = ShvCanFrame::try_from(&frame).unwrap();
+
+            assert_eq!(
+                parsed,
+                ShvCanFrame::Ack(AckFrame {
+                    header: DataFrameHeader {
+                        src: CAN_ID as u8,
+                        dst: 7,
+                        first: is_first_frame(CAN_ID),
+                    },
+                    counter: 99,
+                })
+            );
+        }
+        {
+            const CAN_ID: u16 = 0x126;
+            let frame = CanFdFrame::new(CanId::standard(CAN_ID).unwrap(), &[1, 2, 10, 20, 30]).unwrap();
+            let parsed = ShvCanFrame::try_from(&frame).unwrap();
+
+            assert_eq!(
+                parsed,
+                ShvCanFrame::Data(DataFrame {
+                    header: DataFrameHeader {
+                        src: CAN_ID as u8,
+                        dst: 1,
+                        first: is_first_frame(CAN_ID),
+                    },
+                    counter: 2,
+                    payload: vec![10, 20, 30],
+                })
+            );
+        }
+        {
+            const CAN_ID: u16 = 0x127;
+            let data = &[1, 2, 10, 20, 30, 40, 50, 60, 70, 80];
+            let frame = CanFdFrame::new(CanId::standard(CAN_ID).unwrap(), data).unwrap();
+            let parsed = ShvCanFrame::try_from(&frame).unwrap();
+
+            assert_eq!(
+                parsed,
+                ShvCanFrame::Data(DataFrame {
+                    header: DataFrameHeader {
+                        src: CAN_ID as u8,
+                        dst: 1,
+                        first: is_first_frame(CAN_ID),
+                    },
+                    counter: 2,
+                    payload: data[2..].into(),
+                })
+            );
+        }
+    }
+
+    // use crate::framerw::FrameWriter;
+    // use crate::canrw::CanFrameWriter;
+    //
+    // fn init_log() {
+    //     let _ = env_logger::builder()
+    //         .is_test(true)
+    //         .try_init();
+    // }
+    //
+    // #[async_std::test]
+    // async fn write_frame_single() {
+    //     let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
+    //     let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
+    //     let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, 0x23, 0x01);
+    //     wr.send_reset_session().await.unwrap();
+    // }
+}
