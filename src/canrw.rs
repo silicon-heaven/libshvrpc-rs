@@ -254,7 +254,11 @@ impl TryFrom<&CanFdFrame> for ShvCanFrame {
             2 => Ok(ShvCanFrame::Ack(AckFrame { header, counter: data[1] })),
             _ => {
                 let counter = data[1];
-                let payload = data[2..].to_vec();
+                let mut payload = data[2..].to_vec();
+                // Trim zero bytes of frames with DLC > 8
+                if payload.len() > 8 {
+                    trim_trailing_zeros(&mut payload);
+                }
                 Ok(ShvCanFrame::Data(DataFrame { header, counter, payload }))
             }
         }
@@ -349,11 +353,6 @@ where
                 let is_last_frame = |frame: &DataFrame| frame.counter & 0x80 != 0;
                 let mut res = Vec::new();
                 loop {
-                    // Trim zero bytes of frames with DLC > 8
-                    if frame.payload.len() > 8 {
-                        trim_trailing_zeros(&mut frame.payload);
-                    }
-
                     res.append(&mut frame.payload);
 
                     if res.len() > self.frame_size_limit() {
