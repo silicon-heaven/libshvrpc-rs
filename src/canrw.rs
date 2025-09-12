@@ -458,11 +458,13 @@ where
     }
 
     async fn send_frame_impl(&mut self, frame: RpcFrame) -> crate::Result<()> {
+        let protocol = frame.protocol as u8;
         let meta = serialize_meta(&frame)?;
         let data = frame.data();
-        let bytes_len = meta.len() + data.len();
-        const MAX_PAYLOAD_LEN: usize = 62;
-        let frame_count = (bytes_len / MAX_PAYLOAD_LEN) + 1;
+
+        let bytes_count = 1 + meta.len() + data.len();
+        const MAX_PAYLOAD_SIZE: usize = 62;
+        let frame_count = (bytes_count / MAX_PAYLOAD_SIZE) + 1;
 
         let start_frame_counter = self.start_frame_counter;
         self.start_frame_counter += 1;
@@ -472,10 +474,10 @@ where
             if frame_idx == frame_count - 1 { val | 0x80 } else { val }
         };
 
-        let mut bytes = meta.iter().copied().chain(data.iter().copied());
+        let mut bytes = [protocol].into_iter().chain(meta).chain(data.iter().copied());
 
         // Send the first frame and wait for the ACK
-        let frame_payload = bytes.by_ref().take(MAX_PAYLOAD_LEN).collect::<Vec<_>>();
+        let frame_payload = bytes.by_ref().take(MAX_PAYLOAD_SIZE).collect::<Vec<_>>();
         for retries_count in 0..=self.max_send_retries {
             let frame_counter = to_frame_counter(0);
             self
@@ -499,7 +501,7 @@ where
         }
 
         for frame_idx in 1..frame_count {
-            let frame_payload = bytes.by_ref().take(MAX_PAYLOAD_LEN).collect::<Vec<_>>();
+            let frame_payload = bytes.by_ref().take(MAX_PAYLOAD_SIZE).collect::<Vec<_>>();
             self
                 .frame_writer
                 .send(ShvCanFrame::Data(DataFrame::new(self.device_addr, self.peer_addr, to_frame_counter(frame_idx), false, &frame_payload)))
