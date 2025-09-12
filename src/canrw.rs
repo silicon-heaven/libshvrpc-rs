@@ -230,31 +230,46 @@ pub enum ShvParseError {
     Malformed(String),
 }
 
-pub fn parse_data_frame(frame: &CanFdFrame) -> Result<ShvCanFrame, ShvParseError> {
-    let shv_can_id = ShvCanId::from_raw_id(frame.raw_id() as u16)?;
-    let src = shv_can_id.device_addr;
-    let data = frame.data();
-    if data.is_empty() {
-        return Err(ShvParseError::DataTooShort);
+impl TryFrom<&CanFdFrame> for ShvCanFrame {
+    type Error = ShvParseError;
+
+    fn try_from(frame: &CanFdFrame) -> Result<Self, Self::Error> {
+        let shv_can_id = ShvCanId::from_raw_id(frame.raw_id() as u16)?;
+        let src = shv_can_id.device_addr;
+        let data = frame.data();
+
+        if data.is_empty() {
+            return Err(ShvParseError::DataTooShort);
+        }
+
+        let dst = data[0];
+        let header = DataFrameHeader {
+            src,
+            dst,
+            first: shv_can_id.first_prio
+        };
+
+        match data.len() {
+            1 => Ok(ShvCanFrame::Terminate(TerminateFrame { header })),
+            2 => Ok(ShvCanFrame::Ack(AckFrame { header, counter: data[1] })),
+            _ => {
+                let counter = data[1];
+                let payload = data[2..].to_vec();
+                Ok(ShvCanFrame::Data(DataFrame { header, counter, payload }))
+            }
+        }
     }
-    let dst = data[0];
-    let header = DataFrameHeader { src, dst, first: shv_can_id.first_prio };
-    if data.len() == 1 {
-        return Ok(ShvCanFrame::Terminate(TerminateFrame { header }));
-    }
-    let counter = data[1];
-    if data.len() == 2 {
-        return Ok(ShvCanFrame::Ack(AckFrame { header, counter }));
-    }
-    let payload = data[2..].to_vec();
-    Ok(ShvCanFrame::Data(DataFrame { header, counter, payload }))
 }
 
-pub fn parse_remote_frame(frame: &CanRemoteFrame) -> Result<RemoteFrame, ShvParseError> {
-    let shv_can_id = ShvCanId::from_raw_id(frame.raw_id() as u16)?;
-    let src = shv_can_id.device_addr;
-    let kind = RtrKind::from(frame.dlc() as u8);
-    Ok(RemoteFrame { src, kind })
+impl TryFrom<&CanRemoteFrame> for RemoteFrame {
+    type Error = ShvParseError;
+
+    fn try_from(frame: &CanRemoteFrame) -> Result<Self, Self::Error> {
+        let shv_can_id = ShvCanId::from_raw_id(frame.raw_id() as u16)?;
+        let src = shv_can_id.device_addr;
+        let kind = RtrKind::from(frame.dlc() as u8);
+        Ok(RemoteFrame { src, kind })
+    }
 }
 
 pub struct CanFrameReader<R, W> {
