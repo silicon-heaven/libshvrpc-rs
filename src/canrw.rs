@@ -513,8 +513,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use futures::StreamExt;
     use socketcan::{CanFdFrame, CanId, EmbeddedFrame};
 
+    use crate::framerw::FrameWriter;
+    use crate::canrw::CanFrameWriter;
+    use crate::rpcframe::Protocol;
     use crate::canrw::{AckFrame, DataFrame, DataFrameHeader, ShvCanFrame, TerminateFrame};
 
     fn is_first_frame(can_id: u16) -> bool {
@@ -595,20 +599,36 @@ mod tests {
         }
     }
 
-    // use crate::framerw::FrameWriter;
-    // use crate::canrw::CanFrameWriter;
-    //
     // fn init_log() {
     //     let _ = env_logger::builder()
     //         .is_test(true)
     //         .try_init();
     // }
-    //
-    // #[async_std::test]
-    // async fn write_frame_single() {
-    //     let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
-    //     let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
-    //     let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, 0x23, 0x01);
-    //     wr.send_reset_session().await.unwrap();
-    // }
+
+    #[async_std::test]
+    async fn send_reset_session() {
+        let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
+        let (frames_tx, mut frames_rx) = futures::channel::mpsc::unbounded();
+        let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, 0x23, 0x01);
+
+        async_std::task::spawn(async move {
+            // Receive the reset session frame
+            let ShvCanFrame::Data(data_frame) = frames_rx
+                .next()
+                .await
+                .expect("Expected reset session frame") else {
+                    panic!("Reset session is not a data frame");
+            };
+            assert_eq!(data_frame.header.src, 0x1);
+            assert_eq!(data_frame.header.dst, 0x23);
+            assert!(data_frame.header.first);
+            assert_eq!(data_frame.payload, vec![Protocol::ResetSession as u8]);
+            // Send ACK
+            ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter)).unwrap();
+        });
+
+        wr.send_reset_session()
+            .await
+            .unwrap_or_else(|e| panic!("Reset session send failed: {e}"));
+    }
 }
