@@ -513,13 +513,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use futures::StreamExt;
+    use std::pin::pin;
+
+    use futures::{FutureExt, StreamExt};
     use socketcan::{CanFdFrame, CanId, EmbeddedFrame};
 
     use crate::framerw::FrameWriter;
     use crate::canrw::CanFrameWriter;
     use crate::rpcframe::Protocol;
     use crate::canrw::{AckFrame, DataFrame, DataFrameHeader, ShvCanFrame, TerminateFrame};
+    use crate::RpcMessage;
 
     fn is_first_frame(can_id: u16) -> bool {
         can_id & (1 << 8) != 0
@@ -630,5 +633,101 @@ mod tests {
         wr.send_reset_session()
             .await
             .unwrap_or_else(|e| panic!("Reset session send failed: {e}"));
+    }
+
+    const CHAINPACK: u8 = Protocol::ChainPack as u8;
+
+    async fn run_send_rpc_message_test(msg: RpcMessage, expected_payloads: &[Vec<u8>]) {
+        let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
+        let (frames_tx, mut frames_rx) = futures::channel::mpsc::unbounded();
+
+        const PEER_ADDR: u8 = 0x23;
+        const DEVICE_ADDR: u8 = 0x01;
+
+        let mut send_fut = pin!(async move {
+            let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, PEER_ADDR, DEVICE_ADDR);
+            wr.send_message(msg).await
+        }.fuse());
+
+        let mut frame_count = 0;
+        let mut start_counter = 0;
+
+        loop {
+            futures::select! {
+                res = send_fut => {
+                    res.unwrap_or_else(|e| panic!("Send message failed: {e}"));
+                }
+
+                maybe_frame = frames_rx.next() => {
+                    match maybe_frame {
+                        Some(ShvCanFrame::Data(data_frame)) => {
+                            assert_eq!(data_frame.header.src, DEVICE_ADDR);
+                            assert_eq!(data_frame.header.dst, PEER_ADDR);
+                            assert_eq!(data_frame.header.first, frame_count == 0);
+                            if frame_count == 0 {
+                                start_counter = data_frame.counter & 0x7f;
+                            } else {
+                                assert_eq!(data_frame.counter, (start_counter.saturating_add(frame_count as u8) & 0x7f) | if frame_count == expected_payloads.len() - 1 { 0x80 } else { 0 });
+                            }
+                            assert_eq!(data_frame.payload, expected_payloads[frame_count]);
+
+                            if frame_count == 0 {
+                                ack_tx.unbounded_send(AckFrame::new(
+                                        data_frame.header.dst,
+                                        data_frame.header.src,
+                                        data_frame.counter
+                                )).unwrap();
+                            }
+
+                            frame_count += 1;
+                        }
+                        Some(_) => panic!("Not a data frame"),
+                        None => break,
+                    }
+                }
+            }
+        }
+
+        assert_eq!(frame_count, expected_payloads.len());
+    }
+
+    #[async_std::test]
+    async fn send_rpc_message() {
+        let msg = RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into()));
+
+        let expected_payloads = &[vec![
+            CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+            0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+            0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6a, 0xff
+        ]];
+
+        run_send_rpc_message_test(msg, expected_payloads).await;
+    }
+
+    #[async_std::test]
+    async fn send_rpc_message_multiframe() {
+        let msg = RpcMessage::create_request_with_id(
+            1, "foo/bar", "xyz",
+            Some("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".into())
+        );
+
+        let expected_payloads = &[
+            vec![
+                CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                0x77, 0x78, 0x79
+            ],
+            vec![
+                0x7a, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+                0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53,
+                0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0xff
+            ]
+        ];
+
+        run_send_rpc_message_test(msg, expected_payloads).await;
     }
 }
