@@ -518,11 +518,13 @@ mod tests {
     use futures::{FutureExt, StreamExt};
     use socketcan::{CanFdFrame, CanId, EmbeddedFrame};
 
-    use crate::framerw::FrameWriter;
+    use crate::framerw::{FrameReader, FrameWriter};
     use crate::canrw::CanFrameWriter;
     use crate::rpcframe::Protocol;
     use crate::canrw::{AckFrame, DataFrame, DataFrameHeader, ShvCanFrame, TerminateFrame};
-    use crate::RpcMessage;
+    use crate::{RpcFrame, RpcMessage};
+
+    use super::CanFrameReader;
 
     fn is_first_frame(can_id: u16) -> bool {
         can_id & (1 << 8) != 0
@@ -730,4 +732,50 @@ mod tests {
 
         run_send_rpc_message_test(msg, expected_payloads).await;
     }
+
+    async fn run_receive_rpc_message_test(rpc_frame: RpcFrame, payloads: &[&[u8]]) {
+        let (ack_tx, mut ack_rx) = futures::channel::mpsc::unbounded();
+        let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
+
+        const PEER_ADDR: u8 = 0x23;
+        const DEVICE_ADDR: u8 = 0x01;
+
+        let mut rd = CanFrameReader::new(frames_rx, ack_tx, 0, PEER_ADDR);
+
+        let mut send_frames = pin!(async move {
+            for (frame_idx, payload) in payloads.into_iter().copied().enumerate() {
+                let counter = frame_idx as u8 & 0x7f | if frame_idx == payloads.len() - 1 { 0x80 } else { 0 };
+                let frame = ShvCanFrame::Data(DataFrame::new(
+                        PEER_ADDR,
+                        DEVICE_ADDR,
+                        counter,
+                        frame_idx == 0,
+                        payload)
+                );
+                frames_tx.unbounded_send(frame).unwrap();
+
+                if frame_idx == 0 {
+                    let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
+                    assert!(ack_frame.header.first);
+                    assert_eq!(ack_frame.header.src, DEVICE_ADDR);
+                    assert_eq!(ack_frame.header.dst, PEER_ADDR);
+                    assert_eq!(ack_frame.counter, counter);
+                }
+            }
+        }.fuse());
+
+        let mut read_fut = rd.receive_frame().fuse();
+
+        futures::select! {
+            _ = send_frames => {
+                // res.unwrap_or_else(|e| panic!("Send frames failed: {e}"));
+            }
+            res = read_fut => {
+                let received_rpc_frame = res.expect("Valid RcpFrame");
+                assert_eq!(rpc_frame, received_rpc_frame);
+
+            }
+        }
+    }
+
 }
