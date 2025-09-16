@@ -955,4 +955,222 @@ mod tests {
         }
 
     }
+
+    #[async_std::test]
+    async fn read_skips_frame_counter_violation() {
+        let (ack_tx, mut ack_rx) = futures::channel::mpsc::unbounded();
+        let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
+
+        const PEER_ADDR: u8 = 0x23;
+        const DEVICE_ADDR: u8 = 0x01;
+
+        let mut rd = CanFrameReader::new(frames_rx, ack_tx, 0, PEER_ADDR);
+
+        let send_frames = pin!(async move {
+            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
+                        PEER_ADDR,
+                        DEVICE_ADDR,
+                        0,
+                        true,
+                        &[
+                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                        0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                        0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                        0x77, 0x78, 0x79
+                        ],
+            ))).unwrap();
+
+            let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
+            assert!(!ack_frame.header.first);
+            assert_eq!(ack_frame.header.src, DEVICE_ADDR);
+            assert_eq!(ack_frame.header.dst, PEER_ADDR);
+            assert_eq!(ack_frame.counter, 0);
+
+            // Invalid frames
+            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
+                        PEER_ADDR,
+                        DEVICE_ADDR,
+                        5,
+                        false,
+                        &[
+                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                        0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                        0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                        0x77, 0x78, 0x79
+                        ],
+            ))).unwrap();
+
+            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
+                        PEER_ADDR,
+                        DEVICE_ADDR,
+                        4,
+                        false,
+                        &[
+                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                        0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                        0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                        0x77, 0x78, 0x79
+                        ],
+            ))).unwrap();
+
+            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
+                        PEER_ADDR,
+                        DEVICE_ADDR,
+                        6,
+                        false,
+                        &[
+                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                        0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                        0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                        0x77, 0x78, 0x79
+                        ],
+            ))).unwrap();
+
+            // Restore the sequence with a new start frame
+            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
+                        PEER_ADDR,
+                        DEVICE_ADDR,
+                        2,
+                        true,
+                        &[
+                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                        0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                        0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                        0x77, 0x78, 0x79
+                        ],
+            ))).unwrap();
+
+            let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
+            assert!(!ack_frame.header.first);
+            assert_eq!(ack_frame.header.src, DEVICE_ADDR);
+            assert_eq!(ack_frame.header.dst, PEER_ADDR);
+            assert_eq!(ack_frame.counter, 2);
+
+            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
+                        PEER_ADDR,
+                        DEVICE_ADDR,
+                        3 | 0x80,
+                        false,
+                        &[
+                        0x7a, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+                        0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53,
+                        0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0xff
+                        ]
+            ))).unwrap();
+
+        }.fuse());
+
+        let read_fut = pin!(async move {
+            let frame = rd.receive_frame().await.unwrap();
+            assert_eq!(
+                RpcMessage::create_request_with_id(
+                    1,
+                    "foo/bar",
+                    "xyz",
+                    Some("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".into())
+                ).to_frame().unwrap(),
+                frame
+            );
+        }.fuse());
+
+        join(send_frames, read_fut).await;
+    }
+
+    #[async_std::test]
+    async fn read_skips_duplicate_frames() {
+        let (ack_tx, mut ack_rx) = futures::channel::mpsc::unbounded();
+        let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
+
+        const PEER_ADDR: u8 = 0x23;
+        const DEVICE_ADDR: u8 = 0x01;
+
+        let mut rd = CanFrameReader::new(frames_rx, ack_tx, 0, PEER_ADDR);
+
+        let read_fut = pin!(async move {
+            let frame = rd.receive_frame().await.unwrap();
+            assert_eq!(frame, RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into())).to_frame().unwrap());
+            let frame = rd.receive_frame().await.unwrap();
+            assert_eq!(frame, RpcMessage::create_request_with_id(2, "foo/bar", "xyz", Some(43.into())).to_frame().unwrap());
+        }.fuse());
+
+        let send_frames = pin!(async move {
+            let counter = 42 | 0x80;
+
+            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
+                        PEER_ADDR,
+                        DEVICE_ADDR,
+                        counter,
+                        true,
+                        &[
+                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6a, 0xff
+                        ],
+            ))).unwrap();
+
+            let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
+            assert!(!ack_frame.header.first);
+            assert_eq!(ack_frame.header.src, DEVICE_ADDR);
+            assert_eq!(ack_frame.header.dst, PEER_ADDR);
+            assert_eq!(ack_frame.counter, counter);
+
+            // Duplicate frames
+            for _ in 0..5 {
+                frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
+                            PEER_ADDR,
+                            DEVICE_ADDR,
+                            counter,
+                            true,
+                            &[
+                            CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                            0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                            0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6a, 0xff
+                            ],
+                ))).unwrap();
+
+                let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
+                assert!(!ack_frame.header.first);
+                assert_eq!(ack_frame.header.src, DEVICE_ADDR);
+                assert_eq!(ack_frame.header.dst, PEER_ADDR);
+                assert_eq!(ack_frame.counter, counter);
+            }
+
+            // Send a new frame
+            let counter = 24 | 0x80;
+            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
+                        PEER_ADDR,
+                        DEVICE_ADDR,
+                        counter,
+                        true,
+                        &[
+                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x42, 0x49, 0x86, 0x07,
+                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6b, 0xff
+                        ],
+            ))).unwrap();
+
+            let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
+            assert!(!ack_frame.header.first);
+            assert_eq!(ack_frame.header.src, DEVICE_ADDR);
+            assert_eq!(ack_frame.header.dst, PEER_ADDR);
+            assert_eq!(ack_frame.counter, counter);
+        }.fuse());
+
+        join(send_frames, read_fut).await;
+    }
 }
