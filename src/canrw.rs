@@ -74,13 +74,13 @@ impl ShvCanId {
         id & 0x7FF
     }
 
-    pub fn from_raw_id(raw: u16) -> Result<Self, ShvParseError> {
+    pub fn from_raw_id(raw: u16) -> Result<Self, ShvCanParseError> {
         if raw > 0x7FF {
-            return Err(ShvParseError::InvalidCanId(raw as u32));
+            return Err(ShvCanParseError::InvalidCanId(raw as u32));
         }
         if (raw & (1 << 10)) != 0 || (raw & (1 << 9)) != 0 {
             // return Err(ShvParseError::InvalidCanId(raw as u32));
-            return Err(ShvParseError::Malformed("Not a SHV CAN frame".into()));
+            return Err(ShvCanParseError::Malformed("Not a SHV CAN frame".into()));
         }
         let first = (raw & (1 << 8)) != 0;
         let device_addr = (raw & 0xFF) as u8;
@@ -121,7 +121,7 @@ impl DataFrame {
 }
 
 impl TryFrom<DataFrame> for CanFdFrame {
-    type Error = ShvParseError;
+    type Error = ShvCanParseError;
 
     fn try_from(frame: DataFrame) -> Result<Self, Self::Error> {
         let id = ShvCanId {
@@ -129,10 +129,10 @@ impl TryFrom<DataFrame> for CanFdFrame {
             device_addr: frame.header.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvParseError::InvalidCanId(id as u32))?;
+            .ok_or(ShvCanParseError::InvalidCanId(id as u32))?;
         let data = [&[frame.header.dst, frame.counter], frame.payload.as_slice()].concat();
         CanFdFrame::with_flags(can_id, &data, FdFlags::BRS | FdFlags::FDF)
-            .ok_or_else(|| ShvParseError::FrameCreation("Cannot build a Data frame".into()))
+            .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build a Data frame".into()))
     }
 }
 
@@ -152,7 +152,7 @@ impl AckFrame {
 }
 
 impl TryFrom<AckFrame> for CanFdFrame {
-    type Error = ShvParseError;
+    type Error = ShvCanParseError;
 
     fn try_from(frame: AckFrame) -> Result<Self, Self::Error> {
         let id = ShvCanId {
@@ -160,10 +160,10 @@ impl TryFrom<AckFrame> for CanFdFrame {
             device_addr: frame.header.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvParseError::InvalidCanId(id as u32))?;
+            .ok_or(ShvCanParseError::InvalidCanId(id as u32))?;
         let data = &[frame.header.dst, frame.counter];
         CanFdFrame::with_flags(can_id, data, FdFlags::BRS | FdFlags::FDF)
-            .ok_or_else(|| ShvParseError::FrameCreation("Cannot build an ACK frame".into()))
+            .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build an ACK frame".into()))
     }
 }
 
@@ -181,7 +181,7 @@ impl TerminateFrame {
 }
 
 impl TryFrom<TerminateFrame> for CanFdFrame {
-    type Error = ShvParseError;
+    type Error = ShvCanParseError;
 
     fn try_from(frame: TerminateFrame) -> Result<Self, Self::Error> {
         let id = ShvCanId {
@@ -189,10 +189,10 @@ impl TryFrom<TerminateFrame> for CanFdFrame {
             device_addr: frame.header.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvParseError::InvalidCanId(id as u32))?;
+            .ok_or(ShvCanParseError::InvalidCanId(id as u32))?;
         let data = &[frame.header.dst];
         CanFdFrame::with_flags(can_id, data, FdFlags::BRS | FdFlags::FDF)
-            .ok_or_else(|| ShvParseError::FrameCreation("Cannot build a Terminate frame".into()))
+            .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build a Terminate frame".into()))
     }
 }
 
@@ -203,7 +203,7 @@ pub struct RemoteFrame {
 }
 
 impl TryFrom<RemoteFrame> for CanRemoteFrame {
-    type Error = ShvParseError;
+    type Error = ShvCanParseError;
 
     fn try_from(frame: RemoteFrame) -> Result<Self, Self::Error> {
         let priority = matches!(frame.kind, RtrKind::AddressAcquisition);
@@ -212,14 +212,14 @@ impl TryFrom<RemoteFrame> for CanRemoteFrame {
             device_addr: frame.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvParseError::InvalidCanId(id as u32))?;
+            .ok_or(ShvCanParseError::InvalidCanId(id as u32))?;
         CanRemoteFrame::new_remote(can_id, u8::from(frame.kind) as usize)
-            .ok_or_else(|| ShvParseError::FrameCreation("Cannot build an RTR frame".into()))
+            .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build an RTR frame".into()))
     }
 }
 
 #[derive(Error, Debug)]
-pub enum ShvParseError {
+pub enum ShvCanParseError {
     #[error("Invalid CAN id: {0:#x}")]
     InvalidCanId(u32),
     #[error("Data frame too short (needs at least destination+counter)")]
@@ -231,7 +231,7 @@ pub enum ShvParseError {
 }
 
 impl TryFrom<&CanFdFrame> for ShvCanFrame {
-    type Error = ShvParseError;
+    type Error = ShvCanParseError;
 
     fn try_from(frame: &CanFdFrame) -> Result<Self, Self::Error> {
         let shv_can_id = ShvCanId::from_raw_id(frame.raw_id() as u16)?;
@@ -239,7 +239,7 @@ impl TryFrom<&CanFdFrame> for ShvCanFrame {
         let data = frame.data();
 
         if data.is_empty() {
-            return Err(ShvParseError::DataTooShort);
+            return Err(ShvCanParseError::DataTooShort);
         }
 
         let dst = data[0];
@@ -266,7 +266,7 @@ impl TryFrom<&CanFdFrame> for ShvCanFrame {
 }
 
 impl TryFrom<&CanRemoteFrame> for RemoteFrame {
-    type Error = ShvParseError;
+    type Error = ShvCanParseError;
 
     fn try_from(frame: &CanRemoteFrame) -> Result<Self, Self::Error> {
         let shv_can_id = ShvCanId::from_raw_id(frame.raw_id() as u16)?;
