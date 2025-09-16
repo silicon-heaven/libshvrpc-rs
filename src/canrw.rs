@@ -320,6 +320,7 @@ impl<R, W> FrameReader for CanFrameReader<R, W>
 where
     R: Stream<Item = ShvCanFrame> + Unpin + Send,
     W: Sink<AckFrame> + Unpin + Send,
+    <W as futures::Sink<AckFrame>>::Error: std::fmt::Display,
 {
     fn peer_id(&self) -> PeerId {
        self.peer_id
@@ -346,7 +347,7 @@ where
                 self.ack_writer
                     .send(AckFrame::new(frame.header.dst, frame.header.src, frame.counter))
                     .await
-                    .map_err(|_| ReceiveFrameError::StreamError("Session terminated while sending ACK".into()))?;
+                    .map_err(|e| ReceiveFrameError::StreamError(format!("Session terminated while sending ACK: {e}")))?;
 
                 let start_frame_counter = frame.counter & 0x7F;
                 // let mut next_frame_counter = start_frame_counter.saturating_add(1);
