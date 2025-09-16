@@ -612,7 +612,7 @@ mod tests {
         let (frames_tx, mut frames_rx) = futures::channel::mpsc::unbounded();
         let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, 0x23, 0x01);
 
-        async_std::task::spawn(async move {
+        let receiver = pin!(async move {
             // Receive the reset session frame
             let ShvCanFrame::Data(data_frame) = frames_rx
                 .next()
@@ -626,11 +626,10 @@ mod tests {
             assert_eq!(data_frame.payload, vec![Protocol::ResetSession as u8]);
             // Send ACK
             ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter)).unwrap();
-        });
+        }.fuse());
 
-        wr.send_reset_session()
-            .await
-            .unwrap_or_else(|e| panic!("Reset session send failed: {e}"));
+        let (_, sender_res) = join(receiver, wr.send_reset_session()).await;
+        assert!(sender_res.is_ok());
     }
 
     #[async_std::test]
