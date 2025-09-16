@@ -515,6 +515,7 @@ where
 mod tests {
     use std::pin::pin;
 
+    use futures::future::join;
     use futures::{FutureExt, StreamExt};
     use socketcan::{CanFdFrame, CanId, EmbeddedFrame};
 
@@ -604,12 +605,6 @@ mod tests {
         }
     }
 
-    // fn init_log() {
-    //     let _ = env_logger::builder()
-    //         .is_test(true)
-    //         .try_init();
-    // }
-
     #[async_std::test]
     async fn send_reset_session() {
         let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
@@ -639,7 +634,7 @@ mod tests {
 
     const CHAINPACK: u8 = Protocol::ChainPack as u8;
 
-    async fn run_send_rpc_message_test(msg: RpcMessage, expected_payloads: &[Vec<u8>]) {
+    async fn run_send_rpc_message_test(msg: RpcMessage, expected_payloads: &[&[u8]]) {
         let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
         let (frames_tx, mut frames_rx) = futures::channel::mpsc::unbounded();
 
@@ -660,33 +655,30 @@ mod tests {
                     res.unwrap_or_else(|e| panic!("Send message failed: {e}"));
                 }
 
-                maybe_frame = frames_rx.next() => {
-                    match maybe_frame {
-                        Some(ShvCanFrame::Data(data_frame)) => {
+                frame = frames_rx.select_next_some() => {
+                    match frame {
+                        ShvCanFrame::Data(data_frame) => {
                             assert_eq!(data_frame.header.src, DEVICE_ADDR);
                             assert_eq!(data_frame.header.dst, PEER_ADDR);
                             assert_eq!(data_frame.header.first, frame_count == 0);
-                            if frame_count == 0 {
+                            if data_frame.header.first {
                                 start_counter = data_frame.counter & 0x7f;
-                            } else {
-                                assert_eq!(data_frame.counter, (start_counter.saturating_add(frame_count as u8) & 0x7f) | if frame_count == expected_payloads.len() - 1 { 0x80 } else { 0 });
-                            }
-                            assert_eq!(data_frame.payload, expected_payloads[frame_count]);
-
-                            if frame_count == 0 {
                                 ack_tx.unbounded_send(AckFrame::new(
                                         data_frame.header.dst,
                                         data_frame.header.src,
                                         data_frame.counter
                                 )).unwrap();
+                            } else {
+                                assert_eq!(data_frame.counter, (start_counter.saturating_add(frame_count as u8) & 0x7f) | if frame_count == expected_payloads.len() - 1 { 0x80 } else { 0 });
                             }
+                            assert_eq!(data_frame.payload, expected_payloads[frame_count].to_vec());
 
                             frame_count += 1;
                         }
-                        Some(_) => panic!("Not a data frame"),
-                        None => break,
+                        _ => panic!("Not a data frame"),
                     }
                 }
+                complete => break,
             }
         }
 
@@ -697,7 +689,7 @@ mod tests {
     async fn send_rpc_message() {
         let msg = RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into()));
 
-        let expected_payloads = &[vec![
+        let expected_payloads: &[&[u8]] = &[&[
             CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
             0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
             0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6a, 0xff
@@ -713,8 +705,8 @@ mod tests {
             Some("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".into())
         );
 
-        let expected_payloads = &[
-            vec![
+        let expected_payloads: &[&[u8]] = &[
+            &[
                 CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
                 0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
                 0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
@@ -723,7 +715,7 @@ mod tests {
                 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
                 0x77, 0x78, 0x79
             ],
-            vec![
+            &[
                 0x7a, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
                 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53,
                 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0xff
@@ -733,7 +725,7 @@ mod tests {
         run_send_rpc_message_test(msg, expected_payloads).await;
     }
 
-    async fn run_receive_rpc_message_test(rpc_frame: RpcFrame, payloads: &[&[u8]]) {
+    async fn run_receive_rpc_frame_test(rpc_frame: RpcFrame, payloads: &[&[u8]]) {
         let (ack_tx, mut ack_rx) = futures::channel::mpsc::unbounded();
         let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
 
@@ -743,7 +735,7 @@ mod tests {
         let mut rd = CanFrameReader::new(frames_rx, ack_tx, 0, PEER_ADDR);
 
         let mut send_frames = pin!(async move {
-            for (frame_idx, payload) in payloads.into_iter().copied().enumerate() {
+            for (frame_idx, payload) in payloads.iter().copied().enumerate() {
                 let counter = frame_idx as u8 & 0x7f | if frame_idx == payloads.len() - 1 { 0x80 } else { 0 };
                 let frame = ShvCanFrame::Data(DataFrame::new(
                         PEER_ADDR,
@@ -756,7 +748,7 @@ mod tests {
 
                 if frame_idx == 0 {
                     let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
-                    assert!(ack_frame.header.first);
+                    assert!(!ack_frame.header.first);
                     assert_eq!(ack_frame.header.src, DEVICE_ADDR);
                     assert_eq!(ack_frame.header.dst, PEER_ADDR);
                     assert_eq!(ack_frame.counter, counter);
@@ -766,16 +758,132 @@ mod tests {
 
         let mut read_fut = rd.receive_frame().fuse();
 
-        futures::select! {
-            _ = send_frames => {
-                // res.unwrap_or_else(|e| panic!("Send frames failed: {e}"));
-            }
-            res = read_fut => {
-                let received_rpc_frame = res.expect("Valid RcpFrame");
-                assert_eq!(rpc_frame, received_rpc_frame);
-
+        loop {
+            futures::select! {
+                _ = send_frames => { }
+                res = read_fut => {
+                    let received_rpc_frame = res.expect("Valid RpcFrame");
+                    assert_eq!(rpc_frame, received_rpc_frame);
+                }
+                complete => break,
             }
         }
     }
 
+    #[async_std::test]
+    async fn receive_frame() {
+        let rpc_frame = RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into())).to_frame().unwrap();
+
+        let payloads: &[&[u8]] = &[&[
+            CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+            0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+            0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6a, 0xff
+        ]];
+
+        run_receive_rpc_frame_test(rpc_frame, payloads).await;
+    }
+
+    #[async_std::test]
+    async fn receive_rpc_frame_more_payloads() {
+        let frame = RpcMessage::create_request_with_id(
+            1, "foo/bar", "xyz",
+            Some("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".into())
+        ).to_frame().unwrap();
+
+        let payloads: &[&[u8]] = &[
+            &[
+                CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                0x77, 0x78, 0x79
+            ],
+            &[
+                0x7a, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+                0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53,
+                0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0xff
+            ]
+        ];
+
+        run_receive_rpc_frame_test(frame, payloads).await;
+    }
+
+    #[async_std::test]
+    async fn counter_changes_for_new_message() {
+        let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
+        let (frames_tx, mut frames_rx) = futures::channel::mpsc::unbounded();
+
+        const PEER_ADDR: u8 = 0x23;
+        const DEVICE_ADDR: u8 = 0x01;
+
+        let msgs = [
+            RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into())),
+            RpcMessage::create_request_with_id(2, "foo/bar", "baz", Some(true.into())),
+            RpcMessage::create_request_with_id(3, "foo/bar", "anything", Some("abcd".into())),
+        ];
+
+        let mut send_fut = pin!(async move {
+            let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, PEER_ADDR, DEVICE_ADDR);
+            for msg in msgs {
+                wr.send_message(msg).await.unwrap();
+            }
+        }.fuse());
+
+        let mut start_counter = None;
+
+        loop {
+            futures::select! {
+                _ = send_fut => { }
+
+                frame = frames_rx.select_next_some() => {
+                    match frame {
+                        ShvCanFrame::Data(data_frame) => {
+                            assert_eq!(data_frame.header.src, DEVICE_ADDR);
+                            assert_eq!(data_frame.header.dst, PEER_ADDR);
+                            if data_frame.header.first {
+                                if let Some(counter) = start_counter {
+                                    assert_ne!(counter, data_frame.counter, "A counter value should be different for a new message");
+                                }
+                                start_counter = Some(data_frame.counter);
+                                ack_tx.unbounded_send(AckFrame::new(
+                                        data_frame.header.dst,
+                                        data_frame.header.src,
+                                        data_frame.counter
+                                )).unwrap();
+                            }
+                        }
+                        _ => panic!("Expected a data frame"),
+                    }
+                }
+                complete => break,
+            }
+        }
+    }
+
+    #[async_std::test]
+    async fn read_and_write() {
+        let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
+        let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
+
+        const PEER_ADDR: u8 = 0x23;
+        const DEVICE_ADDR: u8 = 0x01;
+
+        let frames = [
+            RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into())).to_frame().unwrap(),
+            RpcMessage::create_request_with_id(2, "foo/bar", "baz", Some(true.into())).to_frame().unwrap(),
+            RpcMessage::create_request_with_id(3, "foo/bar", "anything", Some("abcd".into())).to_frame().unwrap(),
+        ];
+
+        let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, PEER_ADDR, DEVICE_ADDR);
+        let mut rd = CanFrameReader::new(frames_rx, ack_tx, 0, PEER_ADDR);
+
+        for frame in frames {
+            let (wr_res, rd_res) = join(wr.send_frame(frame.clone()), rd.receive_frame()).await;
+            assert!(wr_res.is_ok());
+            assert_eq!(frame, rd_res.unwrap());
+        }
+
+    }
 }
