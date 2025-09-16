@@ -350,7 +350,6 @@ where
                     .map_err(|e| ReceiveFrameError::StreamError(format!("Session terminated while sending ACK: {e}")))?;
 
                 let start_frame_counter = frame.counter & 0x7F;
-                // let mut next_frame_counter = start_frame_counter.saturating_add(1);
                 let is_last_frame = |frame: &DataFrame| frame.counter & 0x80 != 0;
                 let mut res = Vec::new();
                 loop {
