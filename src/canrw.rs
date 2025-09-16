@@ -632,6 +632,75 @@ mod tests {
             .unwrap_or_else(|e| panic!("Reset session send failed: {e}"));
     }
 
+    #[async_std::test]
+    async fn resend_on_bad_ack() {
+        let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
+        let (frames_tx, mut frames_rx) = futures::channel::mpsc::unbounded();
+        let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, 0x23, 0x01);
+
+        let receiver = pin!(async move {
+            for _ in 0..3 {
+                // Receive the reset session frame
+                let ShvCanFrame::Data(data_frame) = frames_rx
+                    .next()
+                    .await
+                    .expect("Expected reset session frame") else {
+                        panic!("Reset session is not a data frame");
+                    };
+                assert_eq!(data_frame.header.src, 0x1);
+                assert_eq!(data_frame.header.dst, 0x23);
+                assert!(data_frame.header.first);
+                assert_eq!(data_frame.payload, vec![Protocol::ResetSession as u8]);
+                // Send wrong ACK
+                ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter.saturating_add(1))).unwrap();
+            }
+            // Receive the reset session frame
+            let ShvCanFrame::Data(data_frame) = frames_rx
+                .next()
+                .await
+                .expect("Expected reset session frame") else {
+                    panic!("Reset session is not a data frame");
+                };
+            assert_eq!(data_frame.header.src, 0x1);
+            assert_eq!(data_frame.header.dst, 0x23);
+            assert!(data_frame.header.first);
+            assert_eq!(data_frame.payload, vec![Protocol::ResetSession as u8]);
+            // Send good ACK
+            ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter)).unwrap();
+        }.fuse());
+
+        let (_, sender_res) = join(receiver, wr.send_reset_session()).await;
+        assert!(sender_res.is_ok());
+    }
+
+    #[async_std::test]
+    async fn fail_on_bad_ack() {
+        let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
+        let (frames_tx, mut frames_rx) = futures::channel::mpsc::unbounded();
+        let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, 0x23, 0x01);
+
+        let receiver = pin!(async move {
+            for _ in 0..4 {
+                // Receive the reset session frame
+                let ShvCanFrame::Data(data_frame) = frames_rx
+                    .next()
+                    .await
+                    .expect("Expected reset session frame") else {
+                        panic!("Reset session is not a data frame");
+                    };
+                assert_eq!(data_frame.header.src, 0x1);
+                assert_eq!(data_frame.header.dst, 0x23);
+                assert!(data_frame.header.first);
+                assert_eq!(data_frame.payload, vec![Protocol::ResetSession as u8]);
+                // Send wrong ACK
+                ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter.saturating_add(1))).unwrap();
+            }
+        }.fuse());
+
+        let (_, sender_res) = join(receiver, wr.send_reset_session()).await;
+        assert!(sender_res.is_err());
+    }
+
     const CHAINPACK: u8 = Protocol::ChainPack as u8;
 
     async fn run_send_rpc_message_test(msg: RpcMessage, expected_payloads: &[&[u8]]) {
