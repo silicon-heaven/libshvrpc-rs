@@ -93,7 +93,16 @@ pub enum ShvCanFrame {
     Data(DataFrame),
     Ack(AckFrame),
     Terminate(TerminateFrame),
-    Remote(RemoteFrame),
+}
+
+impl ShvCanFrame {
+    pub fn header(&self) -> &DataFrameHeader {
+        match self {
+            ShvCanFrame::Data(data_frame) => &data_frame.header,
+            ShvCanFrame::Ack(ack_frame) => &ack_frame.header,
+            ShvCanFrame::Terminate(terminate_frame) => &terminate_frame.header,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +110,18 @@ pub struct DataFrameHeader {
     src: u8,
     dst: u8,
     first: bool,
+}
+
+impl DataFrameHeader {
+    pub fn src(&self) -> u8 {
+        self.src
+    }
+    pub fn dst(&self) -> u8 {
+        self.dst
+    }
+    pub fn is_first(&self) -> bool {
+        self.first
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,12 +139,24 @@ impl DataFrame {
             payload: data.into(),
         }
     }
+    pub fn header(&self) -> &DataFrameHeader {
+        &self.header
+    }
+    pub fn counter_masked(&self) -> u8 {
+        self.counter & 0x7f
+    }
+    pub fn is_last(&self) -> bool {
+        self.counter & 0x80 != 0
+    }
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
 }
 
-impl TryFrom<DataFrame> for CanFdFrame {
+impl TryFrom<&DataFrame> for CanFdFrame {
     type Error = ShvCanParseError;
 
-    fn try_from(frame: DataFrame) -> Result<Self, Self::Error> {
+    fn try_from(frame: &DataFrame) -> Result<Self, Self::Error> {
         let id = ShvCanId {
             first_prio: frame.header.first,
             device_addr: frame.header.src
@@ -149,12 +182,21 @@ impl AckFrame {
             counter,
         }
     }
+    pub fn header(&self) -> &DataFrameHeader {
+        &self.header
+    }
+    pub fn counter_masked(&self) -> u8 {
+        self.counter & 0x7f
+    }
+    pub fn is_last(&self) -> bool {
+        self.counter & 0x80 != 0
+    }
 }
 
-impl TryFrom<AckFrame> for CanFdFrame {
+impl TryFrom<&AckFrame> for CanFdFrame {
     type Error = ShvCanParseError;
 
-    fn try_from(frame: AckFrame) -> Result<Self, Self::Error> {
+    fn try_from(frame: &AckFrame) -> Result<Self, Self::Error> {
         let id = ShvCanId {
             first_prio: false,
             device_addr: frame.header.src
@@ -178,12 +220,15 @@ impl TerminateFrame {
             header: DataFrameHeader { src, dst, first: true },
         }
     }
+    pub fn header(&self) -> &DataFrameHeader {
+        &self.header
+    }
 }
 
-impl TryFrom<TerminateFrame> for CanFdFrame {
+impl TryFrom<&TerminateFrame> for CanFdFrame {
     type Error = ShvCanParseError;
 
-    fn try_from(frame: TerminateFrame) -> Result<Self, Self::Error> {
+    fn try_from(frame: &TerminateFrame) -> Result<Self, Self::Error> {
         let id = ShvCanId {
             first_prio: true,
             device_addr: frame.header.src
@@ -200,6 +245,15 @@ impl TryFrom<TerminateFrame> for CanFdFrame {
 pub struct RemoteFrame {
     src: u8,
     kind: RtrKind,
+}
+
+impl RemoteFrame {
+    pub fn src(&self) -> u8 {
+        self.src
+    }
+    pub fn kind(&self) -> RtrKind {
+        self.kind
+    }
 }
 
 impl TryFrom<RemoteFrame> for CanRemoteFrame {
@@ -287,7 +341,7 @@ pub struct CanFrameReader<R, W> {
 
 impl<R, W> CanFrameReader<R, W>
 where
-    R: StreamExt<Item = ShvCanFrame> + Unpin + Send,
+    R: StreamExt<Item = DataFrame> + Unpin + Send,
     W: SinkExt<AckFrame> + Unpin + Send,
 {
     pub fn new(frame_reader: R, ack_writer: W, peer_id: PeerId, peer_addr: u8) -> Self {
@@ -318,7 +372,7 @@ fn trim_trailing_zeros(v: &mut Vec<u8>) {
 #[async_trait]
 impl<R, W> FrameReader for CanFrameReader<R, W>
 where
-    R: Stream<Item = ShvCanFrame> + Unpin + Send,
+    R: Stream<Item = DataFrame> + Unpin + Send,
     W: Sink<AckFrame> + Unpin + Send,
     <W as futures::Sink<AckFrame>>::Error: std::fmt::Display,
 {
@@ -338,8 +392,8 @@ where
                     .await
                     .ok_or_else(|| ReceiveFrameError::StreamError("Session terminated".into()))?;
 
-                if let ShvCanFrame::Data(data_frame) = frame && data_frame.header.first {
-                    break data_frame;
+                if frame.header.first {
+                    break frame;
                 };
             };
 
@@ -376,16 +430,10 @@ where
 
                     let next_frame_counter = frame.counter.saturating_add(1) & 0x7f;
 
-                    frame = loop {
-                        let frame = self.frame_reader
-                            .next()
-                            .await
-                            .ok_or_else(|| ReceiveFrameError::StreamError("Session terminated".into()))?;
-
-                        if let ShvCanFrame::Data(data_frame) = frame {
-                            break data_frame;
-                        };
-                    };
+                    frame = self.frame_reader
+                        .next()
+                        .await
+                        .ok_or_else(|| ReceiveFrameError::StreamError("Session terminated".into()))?;
 
                     // If the frame is a first frame, start over from sending the ACK, dropping the data fetched so far.
                     if frame.header.first {
@@ -419,7 +467,7 @@ pub struct CanFrameWriter<W, R> {
 
 impl<R, W> CanFrameWriter<W, R>
 where
-    W: SinkExt<ShvCanFrame> + Unpin + Send,
+    W: SinkExt<DataFrame> + Unpin + Send,
     R: StreamExt<Item = AckFrame> + Unpin + Send,
 {
     pub fn new(frame_writer: W, ack_reader: R, peer_id: PeerId, peer_addr: u8, device_addr: u8) -> Self {
@@ -449,7 +497,7 @@ where
 #[async_trait]
 impl<W, R> FrameWriter for CanFrameWriter<W, R>
 where
-    W: SinkExt<ShvCanFrame> + Unpin + Send,
+    W: SinkExt<DataFrame> + Unpin + Send,
     R: StreamExt<Item = AckFrame> + Unpin + Send,
 {
     fn peer_id(&self) -> PeerId {
@@ -481,7 +529,7 @@ where
             let frame_counter = to_frame_counter(0);
             self
                 .frame_writer
-                .send(ShvCanFrame::Data(DataFrame::new(self.device_addr, self.peer_addr, frame_counter, true, &frame_payload)))
+                .send(DataFrame::new(self.device_addr, self.peer_addr, frame_counter, true, &frame_payload))
                 .await
                 .map_err(|_| "Session terminated")?;
 
@@ -503,7 +551,7 @@ where
             let frame_payload = bytes.by_ref().take(MAX_PAYLOAD_SIZE).collect::<Vec<_>>();
             self
                 .frame_writer
-                .send(ShvCanFrame::Data(DataFrame::new(self.device_addr, self.peer_addr, to_frame_counter(frame_idx), false, &frame_payload)))
+                .send(DataFrame::new(self.device_addr, self.peer_addr, to_frame_counter(frame_idx), false, &frame_payload))
                 .await
                 .map_err(|_| "Session terminated")?;
         }
@@ -613,12 +661,10 @@ mod tests {
 
         let receiver = pin!(async move {
             // Receive the reset session frame
-            let ShvCanFrame::Data(data_frame) = frames_rx
+            let data_frame = frames_rx
                 .next()
                 .await
-                .expect("Expected reset session frame") else {
-                    panic!("Reset session is not a data frame");
-            };
+                .expect("Expected reset session frame");
             assert_eq!(data_frame.header.src, 0x1);
             assert_eq!(data_frame.header.dst, 0x23);
             assert!(data_frame.header.first);
@@ -640,12 +686,10 @@ mod tests {
         let receiver = pin!(async move {
             for _ in 0..3 {
                 // Receive the reset session frame
-                let ShvCanFrame::Data(data_frame) = frames_rx
+                let data_frame = frames_rx
                     .next()
                     .await
-                    .expect("Expected reset session frame") else {
-                        panic!("Reset session is not a data frame");
-                    };
+                    .expect("Expected reset session frame");
                 assert_eq!(data_frame.header.src, 0x1);
                 assert_eq!(data_frame.header.dst, 0x23);
                 assert!(data_frame.header.first);
@@ -654,12 +698,10 @@ mod tests {
                 ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter.saturating_add(1))).unwrap();
             }
             // Receive the reset session frame
-            let ShvCanFrame::Data(data_frame) = frames_rx
+            let data_frame = frames_rx
                 .next()
                 .await
-                .expect("Expected reset session frame") else {
-                    panic!("Reset session is not a data frame");
-                };
+                .expect("Expected reset session frame");
             assert_eq!(data_frame.header.src, 0x1);
             assert_eq!(data_frame.header.dst, 0x23);
             assert!(data_frame.header.first);
@@ -681,12 +723,10 @@ mod tests {
         let receiver = pin!(async move {
             for _ in 0..4 {
                 // Receive the reset session frame
-                let ShvCanFrame::Data(data_frame) = frames_rx
+                let data_frame = frames_rx
                     .next()
                     .await
-                    .expect("Expected reset session frame") else {
-                        panic!("Reset session is not a data frame");
-                    };
+                    .expect("Expected reset session frame");
                 assert_eq!(data_frame.header.src, 0x1);
                 assert_eq!(data_frame.header.dst, 0x23);
                 assert!(data_frame.header.first);
@@ -723,28 +763,23 @@ mod tests {
                     res.unwrap_or_else(|e| panic!("Send message failed: {e}"));
                 }
 
-                frame = frames_rx.select_next_some() => {
-                    match frame {
-                        ShvCanFrame::Data(data_frame) => {
-                            assert_eq!(data_frame.header.src, DEVICE_ADDR);
-                            assert_eq!(data_frame.header.dst, PEER_ADDR);
-                            assert_eq!(data_frame.header.first, frame_count == 0);
-                            if data_frame.header.first {
-                                start_counter = data_frame.counter & 0x7f;
-                                ack_tx.unbounded_send(AckFrame::new(
-                                        data_frame.header.dst,
-                                        data_frame.header.src,
-                                        data_frame.counter
-                                )).unwrap();
-                            } else {
-                                assert_eq!(data_frame.counter, (start_counter.saturating_add(frame_count as u8) & 0x7f) | if frame_count == expected_payloads.len() - 1 { 0x80 } else { 0 });
-                            }
-                            assert_eq!(data_frame.payload, expected_payloads[frame_count].to_vec());
-
-                            frame_count += 1;
-                        }
-                        _ => panic!("Not a data frame"),
+                data_frame = frames_rx.select_next_some() => {
+                    assert_eq!(data_frame.header.src, DEVICE_ADDR);
+                    assert_eq!(data_frame.header.dst, PEER_ADDR);
+                    assert_eq!(data_frame.header.first, frame_count == 0);
+                    if data_frame.header.first {
+                        start_counter = data_frame.counter & 0x7f;
+                        ack_tx.unbounded_send(AckFrame::new(
+                                data_frame.header.dst,
+                                data_frame.header.src,
+                                data_frame.counter
+                        )).unwrap();
+                    } else {
+                        assert_eq!(data_frame.counter, (start_counter.saturating_add(frame_count as u8) & 0x7f) | if frame_count == expected_payloads.len() - 1 { 0x80 } else { 0 });
                     }
+                    assert_eq!(data_frame.payload, expected_payloads[frame_count].to_vec());
+
+                    frame_count += 1;
                 }
                 complete => break,
             }
@@ -805,12 +840,12 @@ mod tests {
         let mut send_frames = pin!(async move {
             for (frame_idx, payload) in payloads.iter().copied().enumerate() {
                 let counter = frame_idx as u8 & 0x7f | if frame_idx == payloads.len() - 1 { 0x80 } else { 0 };
-                let frame = ShvCanFrame::Data(DataFrame::new(
-                        PEER_ADDR,
-                        DEVICE_ADDR,
-                        counter,
-                        frame_idx == 0,
-                        payload)
+                let frame = DataFrame::new(
+                    PEER_ADDR,
+                    DEVICE_ADDR,
+                    counter,
+                    frame_idx == 0,
+                    payload
                 );
                 frames_tx.unbounded_send(frame).unwrap();
 
@@ -905,24 +940,19 @@ mod tests {
             futures::select! {
                 _ = send_fut => { }
 
-                frame = frames_rx.select_next_some() => {
-                    match frame {
-                        ShvCanFrame::Data(data_frame) => {
-                            assert_eq!(data_frame.header.src, DEVICE_ADDR);
-                            assert_eq!(data_frame.header.dst, PEER_ADDR);
-                            if data_frame.header.first {
-                                if let Some(counter) = start_counter {
-                                    assert_ne!(counter, data_frame.counter, "A counter value should be different for a new message");
-                                }
-                                start_counter = Some(data_frame.counter);
-                                ack_tx.unbounded_send(AckFrame::new(
-                                        data_frame.header.dst,
-                                        data_frame.header.src,
-                                        data_frame.counter
-                                )).unwrap();
-                            }
+                data_frame = frames_rx.select_next_some() => {
+                    assert_eq!(data_frame.header.src, DEVICE_ADDR);
+                    assert_eq!(data_frame.header.dst, PEER_ADDR);
+                    if data_frame.header.first {
+                        if let Some(counter) = start_counter {
+                            assert_ne!(counter, data_frame.counter, "A counter value should be different for a new message");
                         }
-                        _ => panic!("Expected a data frame"),
+                        start_counter = Some(data_frame.counter);
+                        ack_tx.unbounded_send(AckFrame::new(
+                                data_frame.header.dst,
+                                data_frame.header.src,
+                                data_frame.counter
+                        )).unwrap();
                     }
                 }
                 complete => break,
@@ -966,21 +996,21 @@ mod tests {
         let mut rd = CanFrameReader::new(frames_rx, ack_tx, 0, PEER_ADDR);
 
         let send_frames = pin!(async move {
-            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
-                        PEER_ADDR,
-                        DEVICE_ADDR,
-                        0,
-                        true,
-                        &[
-                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
-                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
-                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
-                        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
-                        0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
-                        0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
-                        0x77, 0x78, 0x79
-                        ],
-            ))).unwrap();
+            frames_tx.unbounded_send(DataFrame::new(
+                    PEER_ADDR,
+                    DEVICE_ADDR,
+                    0,
+                    true,
+                    &[
+                    CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                    0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                    0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                    0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                    0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                    0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                    0x77, 0x78, 0x79
+                    ],
+            )).unwrap();
 
             let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
             assert!(!ack_frame.header.first);
@@ -989,70 +1019,70 @@ mod tests {
             assert_eq!(ack_frame.counter, 0);
 
             // Invalid frames
-            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
-                        PEER_ADDR,
-                        DEVICE_ADDR,
-                        5,
-                        false,
-                        &[
-                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
-                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
-                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
-                        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
-                        0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
-                        0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
-                        0x77, 0x78, 0x79
-                        ],
-            ))).unwrap();
+            frames_tx.unbounded_send(DataFrame::new(
+                    PEER_ADDR,
+                    DEVICE_ADDR,
+                    5,
+                    false,
+                    &[
+                    CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                    0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                    0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                    0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                    0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                    0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                    0x77, 0x78, 0x79
+                    ],
+            )).unwrap();
 
-            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
-                        PEER_ADDR,
-                        DEVICE_ADDR,
-                        4,
-                        false,
-                        &[
-                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
-                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
-                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
-                        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
-                        0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
-                        0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
-                        0x77, 0x78, 0x79
-                        ],
-            ))).unwrap();
+            frames_tx.unbounded_send(DataFrame::new(
+                    PEER_ADDR,
+                    DEVICE_ADDR,
+                    4,
+                    false,
+                    &[
+                    CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                    0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                    0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                    0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                    0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                    0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                    0x77, 0x78, 0x79
+                    ],
+            )).unwrap();
 
-            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
-                        PEER_ADDR,
-                        DEVICE_ADDR,
-                        6,
-                        false,
-                        &[
-                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
-                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
-                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
-                        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
-                        0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
-                        0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
-                        0x77, 0x78, 0x79
-                        ],
-            ))).unwrap();
+            frames_tx.unbounded_send(DataFrame::new(
+                    PEER_ADDR,
+                    DEVICE_ADDR,
+                    6,
+                    false,
+                    &[
+                    CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                    0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                    0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                    0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                    0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                    0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                    0x77, 0x78, 0x79
+                    ],
+            )).unwrap();
 
             // Restore the sequence with a new start frame
-            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
-                        PEER_ADDR,
-                        DEVICE_ADDR,
-                        2,
-                        true,
-                        &[
-                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
-                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
-                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
-                        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
-                        0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
-                        0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
-                        0x77, 0x78, 0x79
-                        ],
-            ))).unwrap();
+            frames_tx.unbounded_send(DataFrame::new(
+                    PEER_ADDR,
+                    DEVICE_ADDR,
+                    2,
+                    true,
+                    &[
+                    CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                    0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                    0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x86, 0x3e, 0x30, 0x31,
+                    0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62,
+                    0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                    0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+                    0x77, 0x78, 0x79
+                    ],
+            )).unwrap();
 
             let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
             assert!(!ack_frame.header.first);
@@ -1060,17 +1090,17 @@ mod tests {
             assert_eq!(ack_frame.header.dst, PEER_ADDR);
             assert_eq!(ack_frame.counter, 2);
 
-            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
-                        PEER_ADDR,
-                        DEVICE_ADDR,
-                        3 | 0x80,
-                        false,
-                        &[
-                        0x7a, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
-                        0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53,
-                        0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0xff
-                        ]
-            ))).unwrap();
+            frames_tx.unbounded_send(DataFrame::new(
+                    PEER_ADDR,
+                    DEVICE_ADDR,
+                    3 | 0x80,
+                    false,
+                    &[
+                    0x7a, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+                    0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53,
+                    0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0xff
+                    ]
+            )).unwrap();
 
         }.fuse());
 
@@ -1110,17 +1140,17 @@ mod tests {
         let send_frames = pin!(async move {
             let counter = 42 | 0x80;
 
-            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
-                        PEER_ADDR,
-                        DEVICE_ADDR,
-                        counter,
-                        true,
-                        &[
-                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
-                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
-                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6a, 0xff
-                        ],
-            ))).unwrap();
+            frames_tx.unbounded_send(DataFrame::new(
+                    PEER_ADDR,
+                    DEVICE_ADDR,
+                    counter,
+                    true,
+                    &[
+                    CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                    0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                    0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6a, 0xff
+                    ],
+            )).unwrap();
 
             let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
             assert!(!ack_frame.header.first);
@@ -1130,17 +1160,17 @@ mod tests {
 
             // Duplicate frames
             for _ in 0..5 {
-                frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
-                            PEER_ADDR,
-                            DEVICE_ADDR,
-                            counter,
-                            true,
-                            &[
-                            CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
-                            0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
-                            0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6a, 0xff
-                            ],
-                ))).unwrap();
+                frames_tx.unbounded_send(DataFrame::new(
+                        PEER_ADDR,
+                        DEVICE_ADDR,
+                        counter,
+                        true,
+                        &[
+                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
+                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6a, 0xff
+                        ],
+                )).unwrap();
 
                 let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
                 assert!(!ack_frame.header.first);
@@ -1151,17 +1181,17 @@ mod tests {
 
             // Send a new frame
             let counter = 24 | 0x80;
-            frames_tx.unbounded_send(ShvCanFrame::Data(DataFrame::new(
-                        PEER_ADDR,
-                        DEVICE_ADDR,
-                        counter,
-                        true,
-                        &[
-                        CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x42, 0x49, 0x86, 0x07,
-                        0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
-                        0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6b, 0xff
-                        ],
-            ))).unwrap();
+            frames_tx.unbounded_send(DataFrame::new(
+                    PEER_ADDR,
+                    DEVICE_ADDR,
+                    counter,
+                    true,
+                    &[
+                    CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x42, 0x49, 0x86, 0x07,
+                    0x66, 0x6f, 0x6f, 0x2f, 0x62, 0x61, 0x72, 0x4a, 0x86, 0x03,
+                    0x78, 0x79, 0x7a, 0xff, 0x8a, 0x41, 0x6b, 0xff
+                    ],
+            )).unwrap();
 
             let ack_frame = ack_rx.next().await.expect("Receiver should send ACK");
             assert!(!ack_frame.header.first);
