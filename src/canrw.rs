@@ -64,11 +64,13 @@ pub struct ShvCanId {
     pub device_addr: u8,
 }
 
+// SHVCAN | Unused
+const SHVCAN_MASK: u16 = (1 << 10) | (1 << 9);
+
 impl ShvCanId {
     pub fn to_raw_id(self) -> u16 {
         let mut id: u16 = 0;
-        id |= 1 << 10; // SHVCAN
-        id |= 1 << 9;  // Unused
+        id |= SHVCAN_MASK;
         if self.first_prio  { id |= 1 << 8; }
         id |= (self.device_addr as u16) & 0xFF;
         id & 0x7FF
@@ -78,8 +80,7 @@ impl ShvCanId {
         if raw > 0x7FF {
             return Err(ShvCanParseError::InvalidCanId(raw as u32));
         }
-        if (raw & (1 << 10)) != 0 || (raw & (1 << 9)) != 0 {
-            // return Err(ShvParseError::InvalidCanId(raw as u32));
+        if raw & SHVCAN_MASK != SHVCAN_MASK {
             return Err(ShvCanParseError::Malformed("Not a SHV CAN frame".into()));
         }
         let first = (raw & (1 << 8)) != 0;
@@ -568,21 +569,30 @@ mod tests {
     use socketcan::{CanFdFrame, CanId, EmbeddedFrame};
 
     use crate::framerw::{FrameReader, FrameWriter};
-    use crate::canrw::CanFrameWriter;
+    use crate::canrw::{CanFrameWriter, ShvCanParseError, SHVCAN_MASK};
     use crate::rpcframe::Protocol;
     use crate::canrw::{AckFrame, DataFrame, DataFrameHeader, ShvCanFrame, TerminateFrame};
     use crate::{RpcFrame, RpcMessage};
 
-    use super::CanFrameReader;
+    use super::{CanFrameReader, ShvCanId};
 
     fn is_first_frame(can_id: u16) -> bool {
         can_id & (1 << 8) != 0
     }
 
     #[test]
+    fn shvcan_id() {
+        assert!(ShvCanId::from_raw_id(0x201).is_err_and(|err| matches!(err, ShvCanParseError::Malformed(_))));
+        assert!(ShvCanId::from_raw_id(0x401).is_err_and(|err| matches!(err, ShvCanParseError::Malformed(_))));
+        assert!(ShvCanId::from_raw_id(0xcdef).is_err_and(|err| matches!(err, ShvCanParseError::InvalidCanId(0xcdef))));
+        assert!(ShvCanId::from_raw_id(0x601).is_ok_and(|id| id.to_raw_id() == 0x601));
+        assert!(ShvCanId::from_raw_id(0x7f1).is_ok_and(|id| id.to_raw_id() == 0x7f1));
+    }
+
+    #[test]
     fn parse_frames() {
         {
-            const CAN_ID: u16 = 0x124;
+            const CAN_ID: u16 = 0x124 | SHVCAN_MASK;
             let frame = CanFdFrame::new(CanId::standard(CAN_ID).unwrap(), &[42]).unwrap();
             let parsed = ShvCanFrame::try_from(&frame).unwrap();
 
@@ -598,7 +608,7 @@ mod tests {
             );
         }
         {
-            const CAN_ID: u16 = 0x125;
+            const CAN_ID: u16 = 0x125 | SHVCAN_MASK;
             let frame = CanFdFrame::new(CanId::standard(CAN_ID).unwrap(), &[7, 99]).unwrap();
             let parsed = ShvCanFrame::try_from(&frame).unwrap();
 
@@ -615,7 +625,7 @@ mod tests {
             );
         }
         {
-            const CAN_ID: u16 = 0x126;
+            const CAN_ID: u16 = 0x126 | SHVCAN_MASK;
             let frame = CanFdFrame::new(CanId::standard(CAN_ID).unwrap(), &[1, 2, 10, 20, 30]).unwrap();
             let parsed = ShvCanFrame::try_from(&frame).unwrap();
 
@@ -633,7 +643,7 @@ mod tests {
             );
         }
         {
-            const CAN_ID: u16 = 0x127;
+            const CAN_ID: u16 = 0x127 | SHVCAN_MASK;
             let data = &[1, 2, 10, 20, 30, 40, 50, 60, 70, 80];
             let frame = CanFdFrame::new(CanId::standard(CAN_ID).unwrap(), data).unwrap();
             let parsed = ShvCanFrame::try_from(&frame).unwrap();
