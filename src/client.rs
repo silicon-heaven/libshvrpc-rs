@@ -159,18 +159,18 @@ pub struct ClientConfig {
     #[serde(
         default = "default_heartbeat",
         deserialize_with = "duration_str::deserialize_duration",
-        serialize_with = "serialize_duration"
+        serialize_with = "serialize_duration_as_string"
     )]
     pub heartbeat_interval: Duration,
     #[serde(
         default,
         deserialize_with = "duration_str::deserialize_option_duration",
-        serialize_with = "serialize_option_duration"
+        serialize_with = "serialize_option_duration_as_string"
     )]
     pub reconnect_interval: Option<Duration>,
 }
 
-fn serialize_duration<S>(
+pub fn serialize_duration_as_string<S>(
     duration: &Duration,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
@@ -180,7 +180,7 @@ where
     duration.human_format().serialize(serializer)
 }
 
-fn serialize_option_duration<S>(
+pub fn serialize_option_duration_as_string<S>(
     duration_opt: &Option<Duration>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
