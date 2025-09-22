@@ -104,6 +104,38 @@ impl ShvCanFrame {
             ShvCanFrame::Terminate(terminate_frame) => &terminate_frame.header,
         }
     }
+
+    pub fn to_brief_string(&self) -> String {
+        match self {
+            ShvCanFrame::Data(data_frame) => {
+                let header = data_frame.header();
+                format!("DATA {src}->{dst} {seq} [{first}{last}]",
+                    src = header.src(),
+                    dst = header.dst(),
+                    seq = data_frame.counter_masked(),
+                    first = if header.is_first() { "F" } else { "-" },
+                    last = if data_frame.is_last() { "L" } else { "-" },
+                )
+            }
+            ShvCanFrame::Ack(ack_frame) => {
+                let header = ack_frame.header();
+                format!("ACK {src}->{dst} {seq} [{first}{last}]",
+                    src = header.src(),
+                    dst = header.dst(),
+                    seq = ack_frame.counter_masked(),
+                    first = if header.is_first() { "F" } else { "-" },
+                    last = if ack_frame.is_last() { "L" } else { "-" },
+                )
+            }
+            ShvCanFrame::Terminate(terminate_frame) => {
+                let header = terminate_frame.header();
+                format!("TERM {src}->{dst}",
+                    src = header.src(),
+                    dst = header.dst(),
+                )
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
