@@ -512,7 +512,7 @@ where
 
         let bytes_count = 1 + meta.len() + data.len();
         const MAX_PAYLOAD_SIZE: usize = 62;
-        let frame_count = (bytes_count / MAX_PAYLOAD_SIZE) + 1;
+        let frame_count = bytes_count.div_ceil(MAX_PAYLOAD_SIZE);
 
         let start_frame_counter = self.start_frame_counter;
         self.start_frame_counter += 1;
@@ -568,7 +568,7 @@ mod tests {
     use futures::{FutureExt, StreamExt};
     use socketcan::{CanFdFrame, CanId, EmbeddedFrame};
 
-    use crate::framerw::{FrameReader, FrameWriter};
+    use crate::framerw::{serialize_meta, FrameReader, FrameWriter};
     use crate::canrw::{CanFrameWriter, ShvCanParseError, SHVCAN_MASK};
     use crate::rpcframe::Protocol;
     use crate::canrw::{AckFrame, DataFrame, DataFrameHeader, ShvCanFrame, TerminateFrame};
@@ -992,7 +992,28 @@ mod tests {
             assert!(wr_res.is_ok());
             assert_eq!(frame, rd_res.unwrap());
         }
+    }
 
+    #[async_std::test]
+    async fn read_and_write_64_bytes_frame() {
+        let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
+        let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
+
+        const PEER_ADDR: u8 = 0x23;
+        const DEVICE_ADDR: u8 = 0x01;
+
+        let frame = RpcMessage::create_request_with_id(4, "foo/bar", "xyz", Some("0123456789abcdefghijklmnopqrstuvwx".into())).to_frame().unwrap();
+
+        // Maximum size of payload that fits to a single frame (2 extra bytes for destination address and frame_counter)
+        const PAYLOAD_SIZE: usize = 62;
+        assert_eq!(1 + serialize_meta(&frame).unwrap().len() + frame.data().len(), PAYLOAD_SIZE);
+
+        let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, PEER_ADDR, DEVICE_ADDR);
+        let mut rd = CanFrameReader::new(frames_rx, ack_tx, 0, PEER_ADDR);
+
+        let (wr_res, rd_res) = join(wr.send_frame(frame.clone()), rd.receive_frame()).await;
+        assert!(wr_res.is_ok());
+        assert_eq!(frame, rd_res.unwrap());
     }
 
     #[async_std::test]
