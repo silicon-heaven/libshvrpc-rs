@@ -461,7 +461,7 @@ where
                         return Ok(res);
                     }
 
-                    let next_frame_counter = frame.counter.saturating_add(1) & 0x7f;
+                    let next_frame_counter = frame.counter.overflowing_add(1).0 & 0x7f;
 
                     frame = self.frame_reader
                         .next()
@@ -547,11 +547,15 @@ where
         let frame_count = bytes_count.div_ceil(MAX_PAYLOAD_SIZE);
 
         let start_frame_counter = self.start_frame_counter;
-        self.start_frame_counter += 1;
+        self.start_frame_counter = start_frame_counter.overflowing_add(1).0;
 
         let to_frame_counter = |frame_idx: usize| {
-            let val = start_frame_counter.saturating_add(frame_idx as u8) & 0x7f;
-            if frame_idx == frame_count - 1 { val | 0x80 } else { val }
+            let val = start_frame_counter.overflowing_add(frame_idx as u8).0 & 0x7f;
+            if frame_idx == frame_count - 1 {
+                val | 0x80
+            } else {
+                val
+            }
         };
 
         let mut bytes = [protocol].into_iter().chain(meta).chain(data.iter().copied());
@@ -737,7 +741,7 @@ mod tests {
                 assert!(data_frame.header.first);
                 assert_eq!(data_frame.payload, vec![Protocol::ResetSession as u8]);
                 // Send wrong ACK
-                ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter.saturating_add(1))).unwrap();
+                ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter.overflowing_add(1).0)).unwrap();
             }
             // Receive the reset session frame
             let data_frame = frames_rx
@@ -774,7 +778,7 @@ mod tests {
                 assert!(data_frame.header.first);
                 assert_eq!(data_frame.payload, vec![Protocol::ResetSession as u8]);
                 // Send wrong ACK
-                ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter.saturating_add(1))).unwrap();
+                ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter.overflowing_add(1).0)).unwrap();
             }
         }.fuse());
 
@@ -817,7 +821,7 @@ mod tests {
                                 data_frame.counter
                         )).unwrap();
                     } else {
-                        assert_eq!(data_frame.counter, (start_counter.saturating_add(frame_count as u8) & 0x7f) | if frame_count == expected_payloads.len() - 1 { 0x80 } else { 0 });
+                        assert_eq!(data_frame.counter, (start_counter.overflowing_add(frame_count as u8).0 & 0x7f) | if frame_count == expected_payloads.len() - 1 { 0x80 } else { 0 });
                     }
                     assert_eq!(data_frame.payload, expected_payloads[frame_count].to_vec());
 
@@ -1046,6 +1050,28 @@ mod tests {
         let (wr_res, rd_res) = join(wr.send_frame(frame.clone()), rd.receive_frame()).await;
         assert!(wr_res.is_ok());
         assert_eq!(frame, rd_res.unwrap());
+    }
+
+    #[async_std::test]
+    async fn read_and_write_many_long_frames() {
+        // Tests correct frame counters wrapping
+        let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
+        let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
+
+        const PEER_ADDR: u8 = 0x23;
+        const DEVICE_ADDR: u8 = 0x01;
+
+        let generate_frame = |idx| RpcMessage::create_request_with_id(idx, "foo/bar", "xyz", Some("abc".repeat(idx as usize * 100).into())).to_frame().unwrap();
+
+        let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, PEER_ADDR, DEVICE_ADDR);
+        let mut rd = CanFrameReader::new(frames_rx, ack_tx, 0, PEER_ADDR);
+
+        for frame_nr in 1..300 {
+            let frame = generate_frame(frame_nr);
+            let (wr_res, rd_res) = join(wr.send_frame(frame.clone()), rd.receive_frame()).await;
+            assert!(wr_res.is_ok());
+            assert_eq!(frame, rd_res.unwrap());
+        }
     }
 
     #[async_std::test]
