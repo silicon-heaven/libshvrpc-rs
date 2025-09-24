@@ -1,4 +1,5 @@
-use std::fmt;
+use std::sync::OnceLock;
+use std::{env, fmt};
 use std::io::BufReader;
 use anyhow::anyhow;
 use shvproto::{ChainPackReader, ChainPackWriter, MetaMap, RpcValue};
@@ -126,13 +127,23 @@ impl RpcFrame {
         Err("Not RPC Request")
     }
 }
+
+static RPCMSG_LOG_LENGTH_THRESHOLD: OnceLock<usize> = OnceLock::new();
+
 impl fmt::Display for RpcFrame {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         if self.protocol == Protocol::ResetSession {
             write!(fmt, "RESET_SESSION")
         } else {
             write!(fmt, "{}", self.meta)?;
-            if self.data().len() > 256 {
+            let log_length_threshold = *RPCMSG_LOG_LENGTH_THRESHOLD.get_or_init(|| {
+                env::var("RPCMSG_LOG_LENGTH_THRESHOLD")
+                    .ok()
+                    .and_then(|env_var| env_var.parse().ok())
+                    .unwrap_or(256)
+            });
+
+            if self.data().len() > log_length_threshold {
                 write!(fmt, "[ ... {} bytes of data ... ]", self.data().len())
             } else {
                 match RpcValue::from_chainpack(self.data()) {
