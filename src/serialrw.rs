@@ -543,7 +543,7 @@ mod test {
                         .with_crc_check(with_crc)
                         .with_frame_size_limit(29);
                     {
-                        // should skip first message as too long and return the second one
+                        assert!(matches!(rd.receive_frame().await.unwrap_err(), ReceiveFrameError::FrameTooLarge(..)));
                         let frame = rd.receive_frame().await.unwrap();
                         debug!("frame: {:?}", &frame);
                         assert_eq!(frame.to_rpcmesage().unwrap().param().unwrap().as_int(), 1);
