@@ -467,8 +467,10 @@ where
 
                     frame = self.frame_reader
                         .next()
+                        .timeout(futures_time::time::Duration::from_secs(5))
                         .await
-                        .ok_or_else(|| ReceiveFrameError::StreamError("Session terminated".into()))?;
+                        .map_err(|_| ReceiveFrameError::Timeout(try_chainpack_buf_to_meta(&res)))
+                        .and_then(|opt| opt.ok_or_else(|| ReceiveFrameError::StreamError("Session terminated".into())))?;
 
                     // If the frame is a first frame, start over from sending the ACK, dropping the data fetched so far.
                     if frame.header.first {
