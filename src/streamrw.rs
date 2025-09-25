@@ -1,6 +1,5 @@
 use crate::framerw::{
-    read_raw_data, serialize_meta, FrameReader,
-    FrameWriter, RawData, ReceiveFrameError,
+    attach_meta_to_timeout, read_raw_data, serialize_meta, try_chainpack_buf_to_meta, FrameReader, FrameWriter, RawData, ReceiveFrameError
 };
 use crate::rpcframe::{Protocol, RpcFrame};
 use crate::rpcmessage::PeerId;
@@ -66,7 +65,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                         ReadErrorReason::UnexpectedEndOfStream => continue,
                         ReadErrorReason::InvalidCharacter => {
                             return Err(ReceiveFrameError::FramingError(
-                                "Cannot read frame length, invalid byte received".into(),
+                                "Cannot read frame length, invalid byte received".into()
                             ))
                         }
                     }
@@ -76,16 +75,13 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         if frame_len == 0 {
             return Err(ReceiveFrameError::FramingError("Frame length cannot be 0.".into()))
         }
-        if frame_len > self.frame_size_limit() {
-            return Err(ReceiveFrameError::FramingError(format!("Client ID: {}, Jumbo frame of {frame_len} bytes is not supported. Jumbo frame threshold is {} bytes.", self.peer_id, self.frame_size_limit())))
-        }
-        let mut data = Vec::with_capacity(frame_len);
-        let mut bytes_to_read = frame_len;
+        let mut bytes_to_read = frame_len.min(self.frame_size_limit());
+        let mut data = Vec::with_capacity(bytes_to_read);
         while bytes_to_read > 0 {
-            let bytes = self.get_raw_bytes(bytes_to_read).await?;
+            let bytes = self.get_raw_bytes(bytes_to_read).await.map_err(|err| attach_meta_to_timeout(err, &data))?;
             assert!(!bytes.is_empty()); // get_raw_bytes() never returns 0
             assert!(bytes.len() <= bytes_to_read);
-            let first_chunk = bytes_to_read == frame_len;
+            let first_chunk = data.is_empty();
             if first_chunk {
                 let protocol = bytes[0];
                 if protocol > Protocol::ChainPack as u8 {
@@ -94,6 +90,16 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
             }
             bytes_to_read -= bytes.len();
             data.extend_from_slice(bytes);
+            if data.len() >= self.frame_size_limit() {
+                return Err(ReceiveFrameError::FrameTooLarge(
+                        format!("Client ID: {}, Jumbo frame of {frame_len} bytes is not supported. Jumbo frame threshold is {frame_size_limit} bytes.",
+                            self.peer_id,
+                            frame_size_limit = self.frame_size_limit()
+                        ),
+                        try_chainpack_buf_to_meta(&data))
+                )
+
+            }
         }
         Ok(data)
     }
