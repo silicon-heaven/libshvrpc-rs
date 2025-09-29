@@ -1,8 +1,10 @@
+use std::borrow::Cow;
+
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncReadExt};
 use log::{*};
 use crate::rpcframe::{Protocol, RpcFrame};
-use shvproto::{ChainPackWriter, MetaMap, RpcValue, Writer};
+use shvproto::{ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{PeerId, RpcError, RpcErrorCode, RqId};
 use futures_time::future::FutureExt;
@@ -10,15 +12,37 @@ use shvproto::util::hex_dump;
 
 #[derive(Debug)]
 pub enum ReceiveFrameError {
-    Timeout,
+    Timeout(Option<MetaMap>),
+    FrameTooLarge(String,Option<MetaMap>),
     FramingError(String),
     StreamError(String),
 }
 
+pub fn try_chainpack_buf_to_meta(buf: &[u8]) -> Option<shvproto::MetaMap> {
+    if buf.first().is_none_or(|first_byte| *first_byte != crate::rpcframe::Protocol::ChainPack as u8) {
+        return None
+    }
+    let mut buffrd = std::io::BufReader::new(&buf[1..]);
+    let mut rd = shvproto::ChainPackReader::new(&mut buffrd);
+    rd.try_read_meta().ok().flatten()
+}
+
+pub(crate) fn attach_meta_to_timeout_error(err: ReceiveFrameError, data: &[u8]) -> ReceiveFrameError {
+    if let ReceiveFrameError::Timeout(None) = err {
+        ReceiveFrameError::Timeout(try_chainpack_buf_to_meta(data))
+    } else {
+        err
+    }
+}
+
 impl std::fmt::Display for ReceiveFrameError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let opt_meta_to_string = |opt_meta: &Option<MetaMap>| opt_meta
+            .as_ref()
+            .map_or_else(|| Cow::from("<none>"), |m| m.to_string().into());
         match self {
-            ReceiveFrameError::Timeout => write!(f, "Read frame timeout"),
+            ReceiveFrameError::Timeout(opt_meta) => write!(f, "Read frame timeout, frame meta: {meta}", meta = opt_meta_to_string(opt_meta)),
+            ReceiveFrameError::FrameTooLarge(s, opt_meta) => write!(f, "Frame too large - {s}, frame meta: {meta}", meta = opt_meta_to_string(opt_meta)),
             ReceiveFrameError::FramingError(s) => write!(f, "FramingError - {s}"),
             ReceiveFrameError::StreamError(s) => write!(f, "StreamError - {s}"),
         }
@@ -95,7 +119,7 @@ pub(crate) async fn read_raw_data<R: AsyncRead + Unpin + Send>(reader: &mut R, d
         match reader.read(&mut data.data).timeout(futures_time::time::Duration::from_secs(5)).await {
             Ok(n) => { n }
             Err(_) => {
-                return Err(ReceiveFrameError::Timeout);
+                return Err(ReceiveFrameError::Timeout(None));
             }
         }
     } else {
@@ -184,7 +208,9 @@ pub(crate) mod test {
             _cx: &mut Context<'_>,
             buf: &mut [u8],
         ) -> Poll<io::Result<usize>> {
-            assert!(!self.chunks.is_empty());
+            if self.chunks.is_empty() {
+                return Ready(Ok(0));
+            }
             let chunk = self.chunks.remove(0);
             //debug!("returning chunk: {}", hex_array(&chunk));
             assert!(buf.len() >= chunk.len());

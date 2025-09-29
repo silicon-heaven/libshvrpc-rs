@@ -8,12 +8,13 @@
 
 use async_trait::async_trait;
 use futures::{Sink, SinkExt, Stream, StreamExt};
+use futures_time::future::FutureExt;
 use futures_time::time::Duration;
 use socketcan::id::FdFlags;
 use socketcan::{CanFdFrame, CanId, CanRemoteFrame, EmbeddedFrame, Frame};
 use thiserror::Error;
 
-use crate::framerw::{serialize_meta, FrameReader, FrameWriter, ReceiveFrameError};
+use crate::framerw::{serialize_meta, try_chainpack_buf_to_meta, FrameReader, FrameWriter, ReceiveFrameError};
 use crate::rpcmessage::PeerId;
 use crate::streamrw::DEFAULT_FRAME_SIZE_LIMIT;
 use crate::RpcFrame;
@@ -443,12 +444,13 @@ where
                     res.append(&mut frame.payload);
 
                     if res.len() > self.frame_size_limit() {
-                        return Err(ReceiveFrameError::FramingError(
+                        return Err(ReceiveFrameError::FrameTooLarge(
                                 format!("Client ID: {client_id}, address: {client_address}, Jumbo frames are not supported. Jumbo frame threshold is {frame_size_limit} bytes.",
                                     client_id = self.peer_id,
                                     client_address = self.peer_addr,
                                     frame_size_limit = self.frame_size_limit()
-                                )
+                                ),
+                                try_chainpack_buf_to_meta(&res)
                         ))
                     }
 
@@ -465,8 +467,10 @@ where
 
                     frame = self.frame_reader
                         .next()
+                        .timeout(futures_time::time::Duration::from_secs(5))
                         .await
-                        .ok_or_else(|| ReceiveFrameError::StreamError("Session terminated".into()))?;
+                        .map_err(|_| ReceiveFrameError::Timeout(try_chainpack_buf_to_meta(&res)))
+                        .and_then(|opt| opt.ok_or_else(|| ReceiveFrameError::StreamError("Session terminated".into())))?;
 
                     // If the frame is a first frame, start over from sending the ACK, dropping the data fetched so far.
                     if frame.header.first {
