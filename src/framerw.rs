@@ -208,7 +208,9 @@ pub(crate) mod test {
             _cx: &mut Context<'_>,
             buf: &mut [u8],
         ) -> Poll<io::Result<usize>> {
-            assert!(!self.chunks.is_empty());
+            if self.chunks.is_empty() {
+                return Ready(Ok(0));
+            }
             let chunk = self.chunks.remove(0);
             //debug!("returning chunk: {}", hex_array(&chunk));
             assert!(buf.len() >= chunk.len());

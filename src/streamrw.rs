@@ -340,10 +340,11 @@ use super::*;
                 from_hex("f2 80 00 00 00 00 00 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
             ],
         ] {
-            let mut rd = StreamFrameReader::new(Chunks { chunks });
+            let mut rd = StreamFrameReader::new(Chunks { chunks })
+                .with_frame_size_limit(30);
             let frame = rd.receive_frame().await;
             debug!("{frame:?}");
-            assert!(frame.is_err());
+            assert!(frame.is_err_and(|err| matches!(err, ReceiveFrameError::FrameTooLarge(_, Some(_)))));
         };
     }
 }
