@@ -1,4 +1,4 @@
-use crate::framerw::{attach_meta_to_timeout, read_raw_data, try_chainpack_buf_to_meta, try_receive_frame_base, FrameReader, RawData};
+use crate::framerw::{attach_meta_to_timeout_error, read_raw_data, try_chainpack_buf_to_meta, try_receive_frame_base, FrameReader, RawData};
 use crate::framerw::{serialize_meta, FrameWriter, ReceiveFrameError};
 use crate::rpcframe::{RpcFrame};
 use crate::rpcmessage::PeerId;
@@ -106,7 +106,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         };
         while self.get_raw_byte(false).await? != STX {}
         loop {
-            match self.get_raw_byte(true).await.map_err(|e| attach_meta_to_timeout(e, &data))? {
+            match self.get_raw_byte(true).await.map_err(|e| attach_meta_to_timeout_error(e, &data))? {
                 STX => {
                     self.unget_stx();
                     return Err(ReceiveFrameError::FramingError(
@@ -117,14 +117,14 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                     if let Some(crc_digest) = crc_digest {
                         let mut crc_data = [0u8; 4];
                         for crc_b in &mut crc_data {
-                            let b = match self.get_raw_byte(true).await.map_err(|e| attach_meta_to_timeout(e, &data))? {
+                            let b = match self.get_raw_byte(true).await.map_err(|e| attach_meta_to_timeout_error(e, &data))? {
                                 STX => {
                                     self.unget_stx();
                                     return Err(ReceiveFrameError::FramingError(
                                         "STX received in CRC.".into(),
                                     ));
                                 }
-                                ESC => Self::unescape_byte(self.get_raw_byte(true).await.map_err(|e| attach_meta_to_timeout(e, &data))?)?,
+                                ESC => Self::unescape_byte(self.get_raw_byte(true).await.map_err(|e| attach_meta_to_timeout_error(e, &data))?)?,
                                 ATX => {
                                     return Err(ReceiveFrameError::FramingError(
                                         "ATX received in CRC.".into(),
@@ -164,7 +164,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                 }
                 ESC => {
                     update_crc_digest(&mut crc_digest, ESC);
-                    let b = self.get_raw_byte(true).await.map_err(|e| attach_meta_to_timeout(e, &data))?;
+                    let b = self.get_raw_byte(true).await.map_err(|e| attach_meta_to_timeout_error(e, &data))?;
                     if b == STX {
                         self.unget_stx();
                         return Err(ReceiveFrameError::FramingError(
@@ -186,9 +186,9 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     #[cfg(test)]
     async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
         let mut data: Vec<u8> = Default::default();
-        while let Ok(b) = self.get_raw_byte(false).await.map_err(|e| attach_meta_to_timeout(e, &data)) {
+        while let Ok(b) = self.get_raw_byte(false).await.map_err(|e| attach_meta_to_timeout_error(e, &data)) {
             let b = match b {
-                ESC => Self::unescape_byte(self.get_raw_byte(false).await.map_err(|e| attach_meta_to_timeout(e, &data))?)?,
+                ESC => Self::unescape_byte(self.get_raw_byte(false).await.map_err(|e| attach_meta_to_timeout_error(e, &data))?)?,
                 b => b,
             };
             data.push(b);

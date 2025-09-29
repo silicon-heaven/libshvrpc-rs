@@ -1,5 +1,5 @@
 use crate::framerw::{
-    attach_meta_to_timeout, read_raw_data, serialize_meta, try_chainpack_buf_to_meta, FrameReader, FrameWriter, RawData, ReceiveFrameError
+    attach_meta_to_timeout_error, read_raw_data, serialize_meta, try_chainpack_buf_to_meta, FrameReader, FrameWriter, RawData, ReceiveFrameError
 };
 use crate::rpcframe::{Protocol, RpcFrame};
 use crate::rpcmessage::PeerId;
@@ -78,7 +78,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         let mut bytes_to_read = frame_len.min(self.frame_size_limit());
         let mut data = Vec::with_capacity(bytes_to_read);
         while bytes_to_read > 0 {
-            let bytes = self.get_raw_bytes(bytes_to_read).await.map_err(|err| attach_meta_to_timeout(err, &data))?;
+            let bytes = self.get_raw_bytes(bytes_to_read).await.map_err(|err| attach_meta_to_timeout_error(err, &data))?;
             assert!(!bytes.is_empty()); // get_raw_bytes() never returns 0
             assert!(bytes.len() <= bytes_to_read);
             let first_chunk = data.is_empty();
