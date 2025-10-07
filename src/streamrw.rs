@@ -1,10 +1,11 @@
 use crate::framerw::{
-    attach_meta_to_timeout_error, read_raw_data, serialize_meta, try_chainpack_buf_to_meta, FrameReader, FrameWriter, RawData, ReceiveFrameError
+    attach_meta_to_timeout_error, log_data_send, read_raw_data, serialize_meta, try_chainpack_buf_to_meta, FrameReader, FrameWriter, RawData, ReceiveFrameError
 };
 use crate::rpcframe::{Protocol, RpcFrame};
 use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use log::*;
 use shvproto::reader::ReadErrorReason;
 use shvproto::{ChainPackReader, ChainPackWriter, ReadError};
 use std::cmp::min;
@@ -145,6 +146,13 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
         let msg_len = 1 + meta_data.len() + frame.data().len();
         wr.write_uint_data(msg_len as u64)?;
         header.push(frame.protocol as u8);
+        if log_enabled!(target: "RpcData", Level::Debug) {
+            let mut log_data = Vec::new();
+            log_data.extend_from_slice(&header);
+            log_data.extend_from_slice(&meta_data);
+            log_data.extend_from_slice(frame.data());
+            log_data_send(&log_data);
+        }
         self.writer.write_all(&header).await?;
         self.writer.write_all(&meta_data).await?;
         self.writer.write_all(frame.data()).await?;

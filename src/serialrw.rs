@@ -1,4 +1,4 @@
-use crate::framerw::{attach_meta_to_timeout_error, read_raw_data, try_chainpack_buf_to_meta, try_receive_frame_base, FrameReader, RawData};
+use crate::framerw::{attach_meta_to_timeout_error, log_data_send, read_raw_data, try_chainpack_buf_to_meta, try_receive_frame_base, FrameReader, RawData};
 use crate::framerw::{serialize_meta, FrameWriter, ReceiveFrameError};
 use crate::rpcframe::{RpcFrame};
 use crate::rpcmessage::PeerId;
@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use crc::{Crc, Digest, CRC_32_ISO_HDLC};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use log::*;
-use shvproto::util::hex_dump;
 use crate::streamrw::DEFAULT_FRAME_SIZE_LIMIT;
 
 const STX: u8 = 0xA2;
@@ -255,7 +254,7 @@ impl<W: AsyncWrite + Unpin + Send> SerialFrameWriter<W> {
             digest.update(data);
         }
         if log_enabled!(target: "RpcData", Level::Debug) {
-            log!(target: "RpcData", Level::Debug, "data sent --> {}", hex_dump(data));
+            log_data_send(&data);
         }
         self.writer.write_all(data).await?;
         Ok(())
@@ -322,6 +321,7 @@ mod test {
     use crate::framerw::test::from_hex;
     use crate::RpcMessage;
     use async_std::io::BufWriter;
+    use shvproto::util::hex_dump;
     use crate::rpcframe::Protocol;
     use crate::util::hex_string;
 

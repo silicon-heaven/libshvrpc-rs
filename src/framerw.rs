@@ -1,9 +1,8 @@
 use std::borrow::Cow;
-
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncReadExt};
 use log::{*};
-use crate::rpcframe::{Protocol, RpcFrame};
+use crate::rpcframe::{rpcmsg_log_length_threshold, Protocol, RpcFrame};
 use shvproto::{ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
 use crate::rpcmessage::{PeerId, RpcError, RpcErrorCode, RqId};
@@ -130,13 +129,14 @@ pub(crate) async fn read_raw_data<R: AsyncRead + Unpin + Send>(reader: &mut R, d
         Err(ReceiveFrameError::StreamError("End of stream".into()))
     } else {
         if log_enabled!(target: "RpcData", Level::Debug) {
-            log!(target: "RpcData", Level::Debug, "data received -------------------------\n{}", hex_dump(&data.data[0 .. n]));
+            log_data_received(&data.data);
         }
         data.consumed = 0;
         data.length = n;
         Ok(())
     }
 }
+
 #[async_trait]
 pub trait FrameWriter {
     fn peer_id(&self) -> PeerId;
@@ -189,6 +189,24 @@ pub fn serialize_meta(frame: &RpcFrame) -> crate::Result<Vec<u8>> {
         }
     };
     Ok(data)
+}
+
+pub(crate) fn log_data_received(data: &[u8]) {
+    log_data(data, "data received");
+}
+
+pub(crate) fn log_data_send(data: &[u8]) {
+    log_data(data, "data send");
+}
+
+fn log_data(data: &[u8], prompt: &str) {
+    let log_length_threshold = rpcmsg_log_length_threshold();
+    let trimmed_at = if data.len() > log_length_threshold {
+        format!(" (trimmed at {log_length_threshold})")
+    } else {
+        "".into()
+    };
+    log!(target: "RpcData", Level::Debug, "{prompt}{trimmed_at} -------------------------\n{}", hex_dump(&data[0 .. log_length_threshold]));
 }
 
 #[cfg(test)]
