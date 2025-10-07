@@ -254,7 +254,7 @@ impl<W: AsyncWrite + Unpin + Send> SerialFrameWriter<W> {
             digest.update(data);
         }
         if log_enabled!(target: "RpcData", Level::Debug) {
-            log_data_send(&data);
+            log_data_send(data);
         }
         self.writer.write_all(data).await?;
         Ok(())
