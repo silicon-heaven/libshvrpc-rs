@@ -130,19 +130,22 @@ impl RpcFrame {
 
 static RPCMSG_LOG_LENGTH_THRESHOLD: OnceLock<usize> = OnceLock::new();
 
+pub(crate) fn rpcmsg_log_length_threshold() -> usize {
+    *RPCMSG_LOG_LENGTH_THRESHOLD.get_or_init(|| {
+        env::var("RPCMSG_LOG_LENGTH_THRESHOLD")
+            .ok()
+            .and_then(|env_var| env_var.parse().ok())
+            .unwrap_or(256)
+    })
+}
+
 impl fmt::Display for RpcFrame {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         if self.protocol == Protocol::ResetSession {
             write!(fmt, "RESET_SESSION")
         } else {
             write!(fmt, "{}", self.meta)?;
-            let log_length_threshold = *RPCMSG_LOG_LENGTH_THRESHOLD.get_or_init(|| {
-                env::var("RPCMSG_LOG_LENGTH_THRESHOLD")
-                    .ok()
-                    .and_then(|env_var| env_var.parse().ok())
-                    .unwrap_or(256)
-            });
-
+            let log_length_threshold = rpcmsg_log_length_threshold();
             if self.data().len() > log_length_threshold {
                 write!(fmt, "[ ... {} bytes of data ... ]", self.data().len())
             } else {
