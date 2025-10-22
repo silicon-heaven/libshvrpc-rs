@@ -206,7 +206,8 @@ fn log_data(data: &[u8], prompt: &str) {
     } else {
         "".into()
     };
-    log!(target: "RpcData", Level::Debug, "{prompt}{trimmed_at} -------------------------\n{}", hex_dump(&data[0 .. log_length_threshold]));
+    let log_length = log_length_threshold.min(data.len());
+    log!(target: "RpcData", Level::Debug, "{prompt}{trimmed_at} -------------------------\n{}", hex_dump(&data[0 .. log_length]));
 }
 
 #[cfg(test)]
