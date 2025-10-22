@@ -6,16 +6,15 @@ use url::Url;
 
 pub use shvproto::util::parse_log_verbosity;
 
-pub fn sha1_hash(data: &[u8]) -> Vec<u8> {
+pub fn sha1_hash(data: &[u8]) -> String {
     let mut hasher = Sha1::new();
     hasher.update(data);
     let result = hasher.finalize();
-    hex::encode(&result[..]).as_bytes().to_vec()
+    hex::encode(&result[..])
 }
-pub fn sha1_password_hash(password: &[u8], nonce: &[u8]) -> Vec<u8> {
-    let mut hash = sha1_hash(password);
+pub fn sha1_password_hash(password: &[u8], nonce: &[u8]) -> String {
     let mut nonce_pass= nonce.to_vec();
-    nonce_pass.append(&mut hash);
+    nonce_pass.append(&mut sha1_hash(password).into_bytes());
     sha1_hash(&nonce_pass)
 }
 
