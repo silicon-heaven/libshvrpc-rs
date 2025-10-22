@@ -124,7 +124,9 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
             .as_str();
         debug!("\t nonce received: {nonce}");
         let mut login_params = login_params.clone();
-        login_params.password = sha1_password_hash(login_params.password.as_bytes(), nonce.as_bytes());
+        if matches!(login_params.login_type, LoginType::SHA1) {
+            login_params.password = sha1_password_hash(login_params.password.as_bytes(), nonce.as_bytes());
+        }
         let rq = RpcMessage::new_request("", "login", Some(login_params.to_rpcvalue()));
         let login_rq_id = rq.request_id();
         debug!("\t send login");
