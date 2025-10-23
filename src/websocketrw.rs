@@ -1,6 +1,5 @@
 use crate::framerw::{
-    serialize_meta, FrameReader,
-    FrameWriter, ReceiveFrameError,
+    serialize_meta, try_chainpack_buf_to_meta, FrameReader, FrameWriter, ReceiveFrameError
 };
 use crate::rpcframe::RpcFrame;
 use crate::rpcmessage::PeerId;
@@ -72,7 +71,13 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                         );
                     }
                     if frame_size as usize > self.frame_size_limit() {
-                        return Err(ReceiveFrameError::FramingError(format!("Client ID: {}, Jumbo frame of {frame_size} bytes is not supported. Jumbo frame threshold is {} bytes.", self.peer_id, self.frame_size_limit())))
+                        return Err(ReceiveFrameError::FrameTooLarge(
+                                format!("Client ID: {}, Jumbo frame of {frame_size} bytes is not supported. Jumbo frame threshold is {} bytes.",
+                                    self.peer_id,
+                                    self.frame_size_limit()
+                                ),
+                                try_chainpack_buf_to_meta(frame))
+                        )
                     }
                     return Ok(frame.to_vec());
                 }
