@@ -204,6 +204,11 @@ impl SubscriptionParam {
         RpcValue::from(lst)
     }
 }
+impl Display for SubscriptionParam {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        write!(f, "{{ri: '{}', ttl: {:?}}}", self.ri, self.ttl)
+    }
+}
 
 #[cfg(test)]
 mod tests {
