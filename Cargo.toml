@@ -1,10 +1,10 @@
 [package]
 name = "shvrpc"
-version = "3.11.2"
+version = "3.11.3"
 edition = "2024"
 
 [dependencies]
-shvproto = { git = "https://github.com/silicon-heaven/libshvproto-rs.git", branch = "master", version = "3.2.0" }
+shvproto = { git = "https://github.com/silicon-heaven/libshvproto-rs.git", tag = "3.6.2" }
 futures = "0.3.29"
 log = "0.4.21"
 sha1 = "0.10.6"
