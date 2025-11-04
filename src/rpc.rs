@@ -257,6 +257,9 @@ mod tests {
             ("test/device/track:get", "test/**:*", true),
             ("test/device/track:get", "test/**:get:*chng", false),
             ("test:get", "test/**:*", true),
+            ("test:get", "test/*/**:*", false),
+            ("test/foo:get", "test/*/**:*", true),
+            ("test/foo/bar:get", "test/*/**:*", true),
 
             ("test/device/track:get:chng", "**:*:*", true),
             ("test/device/track:get:chng", "**:get:*", true),
