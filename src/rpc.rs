@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 #[derive(Debug)]
 pub struct Glob {
     path: Pattern,
+    path_star_prefix: Option<Pattern>,
     method: Pattern,
     signal: Option<Pattern>,
     ri: ShvRI,
@@ -14,7 +15,9 @@ pub struct Glob {
 impl Glob {
     pub fn match_shv_ri(&self, shv_ri: &ShvRI) -> bool {
         // if method is granted => signal is granted as well
-        if !self.path.matches(shv_ri.path()) {
+        if !self.path.matches(shv_ri.path())
+            && !self.path_star_prefix.as_ref().is_some_and(|prefix| prefix.matches(shv_ri.path()))
+        {
             return false;
         }
         if !self.method.matches(shv_ri.method()) {
@@ -82,6 +85,9 @@ impl ShvRI {
         Ok(Glob {
             path: Pattern::new(self.path())
                 .map_err(|e| format!("Parse path glob: '{self}' error: {e}"))?,
+            path_star_prefix: self.path()
+                .strip_suffix("/**")
+                .and_then(|prefix| Pattern::new(prefix).ok()),
             method: Pattern::new(self.method())
                 .map_err(|e| format!("Parse method glob: '{self}' error: {e}"))?,
             signal: if let Some(signal) = self.signal() {
@@ -252,6 +258,10 @@ mod tests {
             ("test/device/track:get", "**:get", true),
             ("test/device/track:get", "test/**:*", true),
             ("test/device/track:get", "test/**:get:*chng", false),
+            ("test:get", "test/**:*", true),
+            ("test:get", "test/*/**:*", false),
+            ("test/foo:get", "test/*/**:*", true),
+            ("test/foo/bar:get", "test/*/**:*", true),
 
             ("test/device/track:get:chng", "**:*:*", true),
             ("test/device/track:get:chng", "**:get:*", true),
