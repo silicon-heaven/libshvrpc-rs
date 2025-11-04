@@ -14,7 +14,11 @@ pub struct Glob {
 impl Glob {
     pub fn match_shv_ri(&self, shv_ri: &ShvRI) -> bool {
         // if method is granted => signal is granted as well
-        if !self.path.matches(shv_ri.path()) {
+        if !self.path.matches(shv_ri.path())
+            && !self.path.as_str().strip_suffix("/**")
+                .is_some_and(|prefix| Pattern::new(prefix)
+                    .is_ok_and(|prefix| prefix.matches(shv_ri.path())))
+        {
             return false;
         }
         if !self.method.matches(shv_ri.method()) {
@@ -252,6 +256,7 @@ mod tests {
             ("test/device/track:get", "**:get", true),
             ("test/device/track:get", "test/**:*", true),
             ("test/device/track:get", "test/**:get:*chng", false),
+            ("test:get", "test/**:*", true),
 
             ("test/device/track:get:chng", "**:*:*", true),
             ("test/device/track:get:chng", "**:get:*", true),
