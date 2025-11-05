@@ -342,9 +342,10 @@ impl TryFrom<&CanFdFrame> for ShvCanFrame {
             2 => Ok(ShvCanFrame::Ack(AckFrame { header, counter: data[1] })),
             _ => {
                 let counter = data[1];
+                let is_last_frame = counter & 0x80 != 0;
                 let mut payload = data[2..].to_vec();
-                // Trim zero bytes of frames with DLC > 8
-                if payload.len() > 8 {
+                // Trim zero bytes of last frames with DLC > 8
+                if is_last_frame && payload.len() > 8 {
                     trim_trailing_zeros(&mut payload);
                 }
                 Ok(ShvCanFrame::Data(DataFrame { header, counter, payload }))
@@ -666,7 +667,7 @@ mod tests {
         }
         {
             const CAN_ID: u16 = 0x126 | SHVCAN_MASK;
-            let frame = CanFdFrame::new(CanId::standard(CAN_ID).unwrap(), &[1, 2, 10, 20, 30]).unwrap();
+            let frame = CanFdFrame::new(CanId::standard(CAN_ID).unwrap(), &[1, 0x82, 10, 20, 30]).unwrap();
             let parsed = ShvCanFrame::try_from(&frame).unwrap();
 
             assert_eq!(
@@ -677,14 +678,14 @@ mod tests {
                         dst: 1,
                         first: is_first_frame(CAN_ID),
                     },
-                    counter: 2,
+                    counter: 0x82,
                     payload: vec![10, 20, 30],
                 })
             );
         }
         {
             const CAN_ID: u16 = 0x127 | SHVCAN_MASK;
-            let data = &[1, 2, 10, 20, 30, 40, 50, 60, 70, 80];
+            let data = &[1, 0x82, 10, 20, 30, 40, 50, 60, 70, 80];
             let frame = CanFdFrame::new(CanId::standard(CAN_ID).unwrap(), data).unwrap();
             let parsed = ShvCanFrame::try_from(&frame).unwrap();
 
@@ -696,7 +697,7 @@ mod tests {
                         dst: 1,
                         first: is_first_frame(CAN_ID),
                     },
-                    counter: 2,
+                    counter: 0x82,
                     payload: data[2..].into(),
                 })
             );
