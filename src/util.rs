@@ -1,4 +1,7 @@
 use std::cmp::min;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use glob::Pattern;
 use sha1::Sha1;
 use sha1::Digest;
@@ -187,8 +190,78 @@ pub fn hex_string(data: &[u8], delim: Option<&str>) -> String {
     ret
 }
 
+pub fn children_on_path<V>(mounts: &BTreeMap<String, V>, path: &str) -> Option<Vec<String>> {
+    let mut dirs: Vec<String> = Vec::new();
+    let mut unique_dirs: HashSet<String> = HashSet::new();
+    let mut dir_exists = mounts.contains_key(path);
+    for (key, _) in mounts.range(path.to_owned()..) {
+        if key.starts_with(path) {
+            if path.is_empty() || (key.len() > path.len() && key.as_bytes()[path.len()] == (b'/')) {
+                dir_exists = true;
+                let dir_rest_start = if path.is_empty() { 0 } else { path.len() + 1 };
+                let mut updirs = key[dir_rest_start..].split('/');
+                if let Some(dir) = updirs.next()
+                    && !dir.is_empty() && !unique_dirs.contains(dir) {
+                        dirs.push(dir.to_string());
+                        unique_dirs.insert(dir.to_string());
+                    }
+            }
+        } else {
+            break;
+        }
+    }
+    if dir_exists {
+        Some(dirs)
+    } else {
+        None
+    }
+}
+
+/// Helper trait for uniform access to some common methods of BTreeMap<String, V> and HashMap<String, V>
+pub trait StringMapView<V> {
+    fn contains_key_(&self, key: &str) -> bool;
+}
+
+impl<V> StringMapView<V> for BTreeMap<String, V> {
+    fn contains_key_(&self, key: &str) -> bool {
+        self.contains_key(key)
+    }
+}
+
+impl<V> StringMapView<V> for HashMap<String, V> {
+    fn contains_key_(&self, key: &str) -> bool {
+        self.contains_key(key)
+    }
+}
+
+pub fn find_longest_path_prefix<'a, V>(
+    map: &impl StringMapView<V>,
+    shv_path: &'a str,
+) -> Option<(&'a str, &'a str)> {
+    let mut path = shv_path;
+    let mut rest = "";
+    loop {
+        if map.contains_key_(path) {
+            return Some((path, rest));
+        }
+        if path.is_empty() {
+            break;
+        }
+        if let Some(slash_ix) = path.rfind('/') {
+            path = &shv_path[..slash_ix];
+            rest = &shv_path[(slash_ix + 1)..];
+        } else {
+            path = "";
+            rest = shv_path;
+        };
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use crate::util::{glob_len, left_glob, split_glob_on_match, starts_with_path, strip_prefix_path};
     fn init_log() {
         let _ = env_logger::builder()
@@ -297,6 +370,39 @@ mod tests {
         assert_eq!(join_path!(foo, "bar", "baz"), "foo/bar/baz".to_string());
         assert_eq!(join_path!("foo", bar.clone(), "baz"), "foo/bar/baz".to_string());
         assert_eq!(join_path!(foo, bar, baz), "foo/bar/baz".to_string());
+    }
+
+    #[test]
+    fn ls_mounts() {
+        let mut mounts = BTreeMap::new();
+        mounts.insert(".broker".into(), ());
+        mounts.insert(".broker/client/1".into(), ());
+        mounts.insert(".broker/client/2".into(), ());
+        mounts.insert(".broker/currentClient".into(), ());
+        mounts.insert("test/device".into(), ());
+        mounts.insert("test/demo-device/x".into(), ());
+        mounts.insert("test/demo/y".into(), ());
+
+        assert_eq!(super::find_longest_path_prefix(&mounts, ".broker/client"), Some((".broker", "client")));
+        assert_eq!(super::find_longest_path_prefix(&mounts, "test"), None);
+        assert_eq!(super::find_longest_path_prefix(&mounts, "test/devic"), None);
+        assert_eq!(super::find_longest_path_prefix(&mounts, "test/device"), Some(("test/device", "")));
+
+        mounts.insert("".into(), ());
+        assert_eq!(super::find_longest_path_prefix(&mounts, "test"), Some(("", "test")));
+        assert_eq!(super::find_longest_path_prefix(&mounts, "test/devic"), Some(("", "test/devic")));
+
+        assert_eq!(super::children_on_path(&mounts, ""), Some(vec![".broker".to_string(), "test".to_string()]));
+        assert_eq!(super::children_on_path(&mounts, ".broker"), Some(vec!["client".to_string(), "currentClient".to_string()]));
+        assert_eq!(super::children_on_path(&mounts, ".broker/client"), Some(vec!["1".to_string(), "2".to_string()]));
+        assert_eq!(super::children_on_path(&mounts, "test"), Some(vec!["demo-device".to_string(), "demo".to_string(), "device".to_string()]));
+        assert_eq!(super::children_on_path(&mounts, ".broker/currentClient"), Some(vec![]));
+        assert_eq!(super::children_on_path(&mounts, "test/device/1"), None);
+        assert_eq!(super::children_on_path(&mounts, "test1"), None);
+        assert_eq!(super::children_on_path(&mounts, "test/devic"), None);
+
+        assert_eq!(super::children_on_path(&mounts, "test/demo-device"), Some(vec!["x".to_string()]));
+        assert_eq!(super::children_on_path(&mounts, "test/demo"), Some(vec!["y".to_string()]));
     }
 
 }
