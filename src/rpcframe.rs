@@ -57,6 +57,16 @@ impl RpcFrame {
     pub fn data(&self) -> &[u8] {
         &self.raw_data[self.data_start..]
     }
+    pub fn is_error(&self) -> bool {
+        let data = self.data();
+        if data.len() < 2 {
+            return false;
+        }
+        const CHAINPACK_IMAP: u8 = shvproto::chainpack::PackingSchema::IMap as u8;
+        const CHAINPACK_ERR_KEY: u8 = 0x40 + rpcmessage::Key::Error as u8;
+        data[0] == CHAINPACK_IMAP && data[1] == CHAINPACK_ERR_KEY
+
+    }
     pub fn from_raw_data(raw_data: Vec<u8>) -> Result<Self, anyhow::Error> {
         if raw_data.is_empty() {
             return Err(anyhow!("Empty data cannot be converted to RpcFrame"));
@@ -171,5 +181,26 @@ impl rpcmessage::RpcMessageMetaTags for RpcFrame {
     fn set_tag(&mut self, id: i32, val: Option<RpcValue>) -> &mut Self::Target {
         self.meta.set_tag(id, val);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::rpcmessage::{RpcError, RpcErrorCode};
+    use crate::RpcMessage;
+
+    use super::RpcFrame;
+
+    #[test]
+    fn rpcframe_is_error() {
+        let msg = RpcMessage::new_request("foo", "bar", None);
+        let mut resp = msg.prepare_response().unwrap();
+        resp.set_error(RpcError::new(RpcErrorCode::PermissionDenied, "msg"));
+        let frame = RpcFrame::from_rpcmessage(&resp).unwrap();
+        assert!(frame.is_error());
+
+        let resp = msg.prepare_response().unwrap();
+        let frame = RpcFrame::from_rpcmessage(&resp).unwrap();
+        assert!(!frame.is_error());
     }
 }
