@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_shvri() -> Result<(), String> {
-        for (ri, path, method, signal, glob) in vec![
+        for (ri, path, method, signal, glob) in [
             (":*:*", "", "*", Some("*"), ":*:*"),
             ("some/path:method:signal", "some/path", "method", Some("signal"), "some/path:method:signal",),
             (":*", "", "*", None, ":*"),
