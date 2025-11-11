@@ -14,7 +14,7 @@ use socketcan::id::FdFlags;
 use socketcan::{CanFdFrame, CanId, CanRemoteFrame, EmbeddedFrame, Frame};
 use thiserror::Error;
 
-use crate::framerw::{serialize_meta, try_chainpack_buf_to_meta, FrameReader, FrameWriter, ReceiveFrameError};
+use crate::framerw::{log_data_received, serialize_meta, try_chainpack_buf_to_meta, FrameReader, FrameWriter, ReceiveFrameError};
 use crate::rpcmessage::PeerId;
 use crate::streamrw::DEFAULT_FRAME_SIZE_LIMIT;
 use crate::RpcFrame;
@@ -461,6 +461,7 @@ where
                             continue 'start;
                         }
                         self.last_start_frame_counter = Some(start_frame_counter);
+                        log_data_received(&res);
                         return Ok(res);
                     }
 

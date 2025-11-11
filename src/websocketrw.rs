@@ -1,5 +1,5 @@
 use crate::framerw::{
-    serialize_meta, try_chainpack_buf_to_meta, FrameReader, FrameWriter, ReceiveFrameError
+    log_data_received, serialize_meta, try_chainpack_buf_to_meta, FrameReader, FrameWriter, ReceiveFrameError
 };
 use crate::rpcframe::RpcFrame;
 use crate::rpcmessage::PeerId;
@@ -79,6 +79,7 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                                 try_chainpack_buf_to_meta(frame))
                         )
                     }
+                    log_data_received(frame);
                     return Ok(frame.to_vec());
                 }
                 tungstenite::Message::Text(utf8_bytes) =>
