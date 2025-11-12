@@ -154,7 +154,7 @@ pub trait FrameWriter {
     }
     async fn send_error(&mut self, meta: MetaMap, errmsg: &str) -> crate::Result<()> {
         let mut msg = RpcMessage::from_meta(meta);
-        msg.set_error(RpcError{ code: RpcErrorCode::MethodCallException, message: errmsg.into()});
+        msg.set_error(RpcError{ code: RpcErrorCode::MethodCallException.into(), message: errmsg.into()});
         self.send_message(msg).await
     }
     async fn send_result(&mut self, meta: MetaMap, result: RpcValue) -> crate::Result<()> {

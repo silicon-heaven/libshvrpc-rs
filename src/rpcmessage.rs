@@ -150,7 +150,7 @@ impl RpcMessage {
         if let Some(err) = self.ival(Key::Error as i32) {
             return Err(RpcError::from_rpcvalue(err)
                 .unwrap_or(RpcError {
-                    code: RpcErrorCode::InvalidParam,
+                    code: USER_ERROR_CODE_DEFAULT.into(),
                     message: "Cannot parse 'error' key found in RPC response.".to_string(),
                 }));
         }
@@ -423,24 +423,30 @@ pub enum RpcErrorCode {
     MethodCallCancelled,
     MethodCallException,
     PermissionDenied,
-    Unknown,
-    UserCode = 32
+    LoginRequired,
+    UserIDRequired,
+    NotImplemented,
+    TryAgainLater,
+    AbortRequestInvalid,
 }
 impl Display for RpcErrorCode {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let s = match self {
-            RpcErrorCode::NoError => {"NoError"}
-            RpcErrorCode::InvalidRequest => {"InvalidRequest"}
-            RpcErrorCode::MethodNotFound => {"MethodNotFound"}
-            RpcErrorCode::InvalidParam => {"InvalidParam"}
-            RpcErrorCode::InternalError => {"InternalError"}
-            RpcErrorCode::ParseError => {"ParseError"}
-            RpcErrorCode::MethodCallTimeout => {"MethodCallTimeout"}
-            RpcErrorCode::MethodCallCancelled => {"MethodCallCancelled"}
-            RpcErrorCode::MethodCallException => {"MethodCallException"}
-            RpcErrorCode::PermissionDenied => {"PermissionDenied"}
-            RpcErrorCode::Unknown => {"Unknown"}
-            RpcErrorCode::UserCode => {"UserCode"}
+            RpcErrorCode::NoError => "NoError",
+            RpcErrorCode::InvalidRequest => "InvalidRequest",
+            RpcErrorCode::MethodNotFound => "MethodNotFound",
+            RpcErrorCode::InvalidParam => "InvalidParam",
+            RpcErrorCode::InternalError => "InternalError",
+            RpcErrorCode::ParseError => "ParseError",
+            RpcErrorCode::MethodCallTimeout => "MethodCallTimeout",
+            RpcErrorCode::MethodCallCancelled => "MethodCallCancelled",
+            RpcErrorCode::MethodCallException => "MethodCallException",
+            RpcErrorCode::PermissionDenied => "PermissionDenied",
+            RpcErrorCode::LoginRequired => "LoginRequired",
+            RpcErrorCode::UserIDRequired => "UserIDRequired",
+            RpcErrorCode::NotImplemented => "NotImplemented",
+            RpcErrorCode::TryAgainLater => "TryAgainLater",
+            RpcErrorCode::AbortRequestInvalid => "AbortRequestInvalid",
         };
         write!(f, "{s}")
     }
@@ -459,38 +465,90 @@ impl TryFrom<i32> for RpcErrorCode {
             x if x == RpcErrorCode::MethodCallCancelled as i32 => Ok(RpcErrorCode::MethodCallCancelled),
             x if x == RpcErrorCode::MethodCallException as i32 => Ok(RpcErrorCode::MethodCallException),
             x if x == RpcErrorCode::PermissionDenied as i32 => Ok(RpcErrorCode::PermissionDenied),
-            x if x == RpcErrorCode::Unknown as i32 => Ok(RpcErrorCode::Unknown),
+
+            x if x == RpcErrorCode::LoginRequired as i32 => Ok(RpcErrorCode::LoginRequired),
+            x if x == RpcErrorCode::UserIDRequired as i32 => Ok(RpcErrorCode::UserIDRequired),
+            x if x == RpcErrorCode::NotImplemented as i32 => Ok(RpcErrorCode::NotImplemented),
+            x if x == RpcErrorCode::TryAgainLater as i32 => Ok(RpcErrorCode::TryAgainLater),
+            x if x == RpcErrorCode::AbortRequestInvalid as i32 => Ok(RpcErrorCode::AbortRequestInvalid),
             _ => Err(()),
+        }
+    }
+}
+
+impl From<RpcErrorCode> for RpcErrorCodeKind {
+    fn from(value: RpcErrorCode) -> Self {
+        Self::RpcError(value)
+    }
+}
+
+impl From<RpcErrorCodeKind> for u32 {
+    fn from(value: RpcErrorCodeKind) -> Self {
+        match value {
+            RpcErrorCodeKind::RpcError(rpc_error_code) => rpc_error_code as u32,
+            RpcErrorCodeKind::UserError(user_error_code) => user_error_code,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum RpcErrorCodeKind {
+    RpcError(RpcErrorCode),
+    UserError(u32),
+}
+
+pub const USER_ERROR_CODE_DEFAULT: u32 = 32;
+
+impl TryFrom<i32> for RpcErrorCodeKind {
+    type Error = <i32 as TryFrom<u32>>::Error;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        RpcErrorCode::try_from(value)
+            .map(Self::RpcError)
+            .or_else(|_| u32::try_from(value).map(Self::UserError))
+    }
+}
+
+impl From<u32> for RpcErrorCodeKind {
+    fn from(value: u32) -> Self {
+        RpcErrorCode::try_from(value as i32).map_or_else(|_| Self::UserError(value), RpcErrorCodeKind::from)
+    }
+}
+
+impl Display for RpcErrorCodeKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RpcErrorCodeKind::RpcError(rpc_error_code) => write!(f, "{rpc_error_code}"),
+            RpcErrorCodeKind::UserError(user_error_code) => write!(f, "UserError({user_error_code})"),
         }
     }
 }
 
 #[derive(Clone)]
 pub struct RpcError {
-    pub code: RpcErrorCode,
+    pub code: RpcErrorCodeKind,
     pub message: String,
 }
 
 enum RpcErrorKey { Code = 1, Message }
 
 impl RpcError {
-    pub fn new(code: RpcErrorCode, msg: impl Into<String>) -> Self {
+    pub fn new(code: impl Into<RpcErrorCodeKind>, msg: impl Into<String>) -> Self {
         RpcError {
-            code,
+            code: code.into(),
             message: msg.into(),
         }
     }
     pub fn from_rpcvalue(rv: &RpcValue) -> Option<Self> {
         if rv.is_imap() {
             let m = rv.as_imap();
-            let code = m.get(&(RpcErrorKey::Code as i32)).unwrap_or(&RpcValue::from(RpcErrorCode::Unknown as i32)).as_i32();
+            let code = m.get(&(RpcErrorKey::Code as i32)).map(RpcValue::as_u32).unwrap_or(USER_ERROR_CODE_DEFAULT);
             let msg = if let Some(msg) = m.get(&(RpcErrorKey::Message as i32)) {
                 msg.as_str().to_string()
             } else {
                 "".to_string()
             };
             Some(RpcError {
-                code: code.try_into().unwrap_or(RpcErrorCode::Unknown),
+                code: code.into(),
                 message: msg,
             })
         } else {
@@ -499,7 +557,7 @@ impl RpcError {
     }
     pub fn to_rpcvalue(&self) -> RpcValue {
         let mut m = IMap::new();
-        m.insert(RpcErrorKey::Code as i32, RpcValue::from(self.code as i32));
+        m.insert(RpcErrorKey::Code as i32, RpcValue::from(u32::from(self.code) as i32));
         m.insert(RpcErrorKey::Message as i32, RpcValue::from(&self.message));
         RpcValue::from(m)
     }
@@ -507,7 +565,7 @@ impl RpcError {
 impl Default for RpcError {
     fn default() -> Self {
         RpcError {
-            code: RpcErrorCode::NoError,
+            code: USER_ERROR_CODE_DEFAULT.into(),
             message: "".to_string(),
         }
     }
