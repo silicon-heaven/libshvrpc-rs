@@ -491,7 +491,7 @@ impl From<RpcErrorCodeKind> for u32 {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RpcErrorCodeKind {
     RpcError(RpcErrorCode),
     UserError(u32),
