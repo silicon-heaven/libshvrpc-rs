@@ -1,6 +1,7 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-use shvproto::{RpcValue, rpcvalue};
+use shvproto::RpcValue;
 
 #[derive(Debug)]
 pub enum Flag {
@@ -27,8 +28,9 @@ impl From<u8> for Flag {
         }
     }
 }
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 pub enum AccessLevel {
+    #[default]
     Browse = 1,
     Read = 8,
     Write = 16,
@@ -111,66 +113,111 @@ impl TryFrom<&RpcValue> for AccessLevel {
     }
 }
 
-#[derive(Debug)]
-pub struct MetaMethod {
-    pub name: &'static str,
-    pub flags: u32,
-    pub access: AccessLevel,
-    pub param: &'static str,
-    pub result: &'static str,
-    pub signals: &'static [(&'static str, Option<&'static str>)],
-    pub description: &'static str,
+#[derive(Debug,Clone)]
+pub enum SignalsDefinition {
+    Static(&'static [(&'static str, Option<&'static str>)]),
+    Dynamic(BTreeMap<String, Option<String>>),
 }
-impl Default for MetaMethod {
+
+impl Default for SignalsDefinition {
     fn default() -> Self {
-        MetaMethod {
-            name: "",
-            flags: 0,
-            access: AccessLevel::Browse,
-            param: "",
-            result: "",
-            signals: &[],
-            description: "",
+        Self::Static(&[])
+    }
+}
+
+impl From<&SignalsDefinition> for BTreeMap<String, Option<String>> {
+    fn from(value: &SignalsDefinition) -> Self {
+        match value {
+            SignalsDefinition::Static(items) =>
+                items
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.map(String::from)))
+                .collect(),
+            SignalsDefinition::Dynamic(map) => map.clone(),
         }
     }
 }
+
+#[derive(Debug, Default, Clone)]
+pub struct MetaMethod {
+    pub name: Cow<'static, str>,
+    pub flags: u32,
+    pub access: AccessLevel,
+    pub param: Cow<'static, str>,
+    pub result: Cow<'static, str>,
+    pub signals: SignalsDefinition,
+    pub description: Cow<'static, str>,
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum DirFormat {
     IMap,
     Map,
 }
+
 impl MetaMethod {
+    pub const fn new_static(
+        name: &'static str,
+        flags: u32,
+        access: AccessLevel,
+        param: &'static str,
+        result: &'static str,
+        signals: &'static [(&'static str, Option<&'static str>)],
+        description: &'static str
+    ) -> Self {
+        Self {
+            name: Cow::Borrowed(name),
+            flags,
+            access,
+            param: Cow::Borrowed(param),
+            result: Cow::Borrowed(result),
+            signals: SignalsDefinition::Static(signals),
+            description: Cow::Borrowed(description),
+        }
+    }
+
+    pub fn new(
+        name: impl Into<Cow<'static, str>>,
+        flags: u32,
+        access: AccessLevel,
+        param: impl Into<Cow<'static, str>>,
+        result: impl Into<Cow<'static, str>>,
+        signals: SignalsDefinition,
+        description: impl Into<Cow<'static, str>>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            flags,
+            access,
+            param: param.into(),
+            result: result.into(),
+            signals,
+            description: description.into(),
+        }
+    }
+
     pub fn to_rpcvalue(&self, fmt: DirFormat) -> RpcValue {
+        fn serialize<K>(mm: &MetaMethod) -> BTreeMap<K, RpcValue>
+            where
+                K: From<DirAttribute>,
+                K: std::cmp::Ord,
+        {
+                let mut m = BTreeMap::<K, RpcValue>::new();
+                m.insert(DirAttribute::Name.into(), mm.name.as_ref().into());
+                m.insert(DirAttribute::Flags.into(), mm.flags.into());
+                m.insert(DirAttribute::Param.into(), mm.param.as_ref().into());
+                m.insert(DirAttribute::Result.into(), mm.result.as_ref().into());
+                m.insert(DirAttribute::AccessLevel.into(), (mm.access as i32).into());
+                m.insert(DirAttribute::Signals.into(), BTreeMap::from(&mm.signals).into());
+                m
+        }
         match fmt {
             DirFormat::IMap => {
-                let mut m = rpcvalue::IMap::new();
-                m.insert(DirAttribute::Name.into(), (self.name).into());
-                m.insert(DirAttribute::Flags.into(), self.flags.into());
-                m.insert(DirAttribute::Param.into(), (self.param).into());
-                m.insert(DirAttribute::Result.into(), (self.result).into());
-                m.insert(DirAttribute::AccessLevel.into(), (self.access as i32).into());
-                m.insert(DirAttribute::Signals.into(), self.signals
-                    .iter()
-                    .map(|(name, value)| (name.to_string(), value.map_or_else(RpcValue::null, RpcValue::from)))
-                    .collect::<BTreeMap<_,_>>()
-                    .into()
-                );
-                m.into()
+                serialize::<i32>(self).into()
             }
             DirFormat::Map => {
-                let mut m = rpcvalue::Map::new();
-                m.insert(DirAttribute::Name.into(), (self.name).into());
-                m.insert(DirAttribute::Flags.into(), self.flags.into());
-                m.insert(DirAttribute::Param.into(), (self.param).into());
-                m.insert(DirAttribute::Result.into(), (self.result).into());
-                m.insert(DirAttribute::AccessLevel.into(), (self.access as i32).into());
-                m.insert(DirAttribute::Signals.into(), self.signals
-                    .iter()
-                    .map(|(name, value)| (name.to_string(), value.map_or_else(RpcValue::null, RpcValue::from)))
-                    .collect::<BTreeMap<_,_>>()
-                    .into()
-                );
-                m.insert("description".into(), (self.description).into());
+                let mut m = serialize::<String>(self);
+                m.insert("description".into(), self.description.as_ref().into());
                 m.into()
             }
         }
