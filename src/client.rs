@@ -41,6 +41,7 @@ pub struct LoginParams {
     pub device_id: String,
     pub mount_point: String,
     pub heartbeat_interval: Duration,
+    pub user_agent: String,
 }
 
 impl Default for LoginParams {
@@ -52,6 +53,7 @@ impl Default for LoginParams {
             device_id: "".to_string(),
             mount_point: "".to_string(),
             heartbeat_interval: Duration::from_secs(60),
+            user_agent: "".to_string(),
         }
     }
 }
@@ -74,6 +76,9 @@ impl LoginParams {
         }
         if !device.is_empty() {
             options.insert("device".into(), RpcValue::from(device));
+        }
+        if !self.user_agent.is_empty() {
+            options.insert("userAgent".into(), RpcValue::from(&self.user_agent));
         }
         map.insert("options".into(), RpcValue::from(options));
         RpcValue::from(map)
