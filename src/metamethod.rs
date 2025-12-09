@@ -10,6 +10,7 @@ pub enum Flag {
     IsGetter = 1 << 1,
     IsSetter = 1 << 2,
     LargeResultHint = 1 << 3,
+    UserIDRequired = 1 << 5,
 }
 impl From<Flag> for u32 {
     fn from(val: Flag) -> Self {
