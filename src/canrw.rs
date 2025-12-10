@@ -568,7 +568,9 @@ where
 
         // Send the first frame and wait for the ACK
         let frame_payload = bytes.by_ref().take(MAX_PAYLOAD_SIZE).collect::<Vec<_>>();
-        for retries_count in 0..=self.max_send_retries {
+        const MAX_TIMEOUT_RETRANSMISSIONS: u8 = 5;
+        let max_send_retries = std::cmp::max(self.max_send_retries, MAX_TIMEOUT_RETRANSMISSIONS);
+        for retries_count in 0..max_send_retries {
             let frame_counter = to_frame_counter(0);
             self
                 .frame_writer
@@ -576,11 +578,21 @@ where
                 .await
                 .map_err(|_| "Session terminated")?;
 
-            let ack_frame = self
+            let ack_frame_or_timeout = self
                 .ack_reader
                 .next()
-                .await
-                .ok_or("Session terminated while waiting for ACK")?;
+                .timeout(Duration::from_secs(1))
+                .await;
+
+            let Ok(ack_frame) = ack_frame_or_timeout else {
+                if retries_count == MAX_TIMEOUT_RETRANSMISSIONS {
+                    return Err(format!("Frame send timed out while waiting for ACK (frame counter: {frame_counter})").into());
+                } else {
+                    continue;
+                }
+            };
+
+            let ack_frame = ack_frame.ok_or("Session terminated while waiting for ACK")?;
 
             if ack_frame.counter == frame_counter {
                 break;
