@@ -30,7 +30,7 @@ jobs:
             features: '--features websocket'
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Clippy
       run: cargo clippy --verbose --all-targets ${{matrix.features}}
     - name: Build
@@ -58,7 +58,7 @@ jobs:
 
       - name: Checkout code
         if: steps.version-check.outcome == 'failure'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{github.head_ref}}
@@ -95,7 +95,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
