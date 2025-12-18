@@ -16,24 +16,34 @@ permissions:
 
 jobs:
   build:
-
-    runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        toolchain: [stable, nightly]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            features: '--all-features'
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            features: '--features websocket'
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
     - name: Clippy
-      run: cargo clippy --verbose --all-targets --all-features
+      run: cargo clippy --verbose --all-targets ${{matrix.features}}
     - name: Build
-      run: cargo build --verbose --all-features
+      run: cargo build --verbose  ${{matrix.features}}
     - name: Run tests
-      run: cargo test --verbose --all-features -- --test-threads=1
+      run: cargo test --verbose  ${{matrix.features}} -- --test-threads=1
 
   coverage:
     name: Code coverage
     runs-on: ubuntu-latest
     steps:
       - name: Generate coverage
-        uses: syyyr/rust-pycobertura-action@v3.0.0
+        uses: silicon-heaven/rust-pycobertura-action@v4.0.1
         with:
           project_name: libshvrpc
 
@@ -42,7 +52,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check version bump
-        uses: syyyr/rust-check-version-bump@ed0644b33a4994450066d35f02905be30e80e627
+        id: version-check
+        continue-on-error: ${{startsWith(github.head_ref, 'dependabot/')}}
+        uses: silicon-heaven/rust-check-version-bump@v1.0.1
+
+      - name: Checkout code
+        if: steps.version-check.outcome == 'failure'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{github.head_ref}}
+
+      - name: Bump version
+        if: steps.version-check.outcome == 'failure'
+        run: |
+          [[ "$(grep '^version' Cargo.toml | head -n1)" =~ ([0-9]+\.[0-9]+\.)([0-9]+) ]]
+          NEW_VERSION="${BASH_REMATCH[1]}$((BASH_REMATCH[2] + 1))"
+          echo Bumping "${BASH_REMATCH[0]} -> $NEW_VERSION"
+          sed -i "s/${BASH_REMATCH[0]}/$NEW_VERSION/" Cargo.toml
+          if [[ -f Cargo.lock ]]; then
+              cargo update
+          fi
+          git diff
+          git config --global user.name "Login will be determined by the Github API based on the creator of the token"
+          git config --global user.email ""
+          git commit -am '[dependabot-skip] Bump version'
+
+      - name: Push changes
+        if: steps.version-check.outcome == 'failure'
+        uses: Asana/push-signed-commits@v1
+        with:
+          github-token: ${{ secrets.DEPENDABOT_GITHUB_TOKEN }}
+          local_branch_name: ${{github.head_ref}}
+          remote_branch_name: ${{github.head_ref}}
 
   tag-release:
     name: Tag Release
@@ -53,7 +95,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
