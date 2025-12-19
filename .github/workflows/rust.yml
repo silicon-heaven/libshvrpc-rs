@@ -1,5 +1,9 @@
 name: Rust
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [ "master" ]
@@ -31,12 +35,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v6
+    - name: Set up Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        target: ${{ matrix.target }}
+        components: clippy
+        toolchain: ${{ matrix.toolchain }}
+        override: true
     - name: Clippy
       run: cargo clippy --verbose --all-targets ${{matrix.features}}
     - name: Build
       run: cargo build --verbose  ${{matrix.features}}
     - name: Run tests
-      run: cargo test --verbose  ${{matrix.features}} -- --test-threads=1
+      run: cargo test --verbose  ${{matrix.features}}
 
   coverage:
     name: Code coverage
