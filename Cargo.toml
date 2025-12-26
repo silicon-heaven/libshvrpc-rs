@@ -3,7 +3,7 @@ name = "shvrpc"
 description = "Rust implementation of the SHV-RPC protocol"
 license = "MIT"
 repository = "https://github.com/silicon-heaven/libshvrpc-rs"
-version = "7.1.7"
+version = "7.1.8"
 edition = "2024"
 
 [dependencies]
