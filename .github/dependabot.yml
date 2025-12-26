@@ -6,15 +6,18 @@ updates:
       - /.github/actions/*
     schedule:
       interval: weekly
+      day: monday
+      time: 06:00
     groups:
       github-actions-deps:
         patterns:
           - '*'
-  # libshvproto-macros is handled together with this one
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: 06:00
     groups:
       cargo-deps:
         patterns:
