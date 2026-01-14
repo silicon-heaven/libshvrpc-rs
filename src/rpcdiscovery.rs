@@ -157,7 +157,7 @@ impl TryFrom<&RpcValue> for MethodInfo {
                         .map_err(|e| format_err(DirAttribute::Result, &e))?,
                     signals: {
                         let signals_map: BTreeMap<String, RpcValue> = get_key(DirAttribute::Signals)
-                            .unwrap_or_default()
+                            .map_or_else(|_| shvproto::Map::new().into(), RpcValue::clone)
                             .try_into()
                             .map_err(|e| format_err(DirAttribute::Signals, &e))?;
                         let mut res: BTreeMap<String, Option<String>> = BTreeMap::new();
@@ -204,7 +204,7 @@ impl TryFrom<&RpcValue> for MethodInfo {
                         .map_err(|e| format_err(DirAttribute::Result, &e))?,
                     signals: {
                         let signals_map: BTreeMap<String, RpcValue> = get_key(DirAttribute::Signals)
-                            .unwrap_or_default()
+                            .map_or_else(|_| shvproto::Map::new().into(), RpcValue::clone)
                             .try_into()
                             .map_err(|e| format_err(DirAttribute::Signals, &e))?;
                         let mut res: BTreeMap<String, Option<String>> = BTreeMap::new();
@@ -220,6 +220,17 @@ impl TryFrom<&RpcValue> for MethodInfo {
                         }
                         res
                     },
+                })
+            }
+            shvproto::Value::String(method_name) => {
+                // Fallback for deprecated format where only method name is provided
+                Ok(MethodInfo {
+                    name: method_name.to_string(),
+                    flags: 0,
+                    access_level: AccessLevel::Read,
+                    param: Default::default(),
+                    result: Default::default(),
+                    signals: Default::default(),
                 })
             }
             _ => Err(format!("Wrong RpcValue type for MethodInfo: {}", value.type_name())),
@@ -263,7 +274,16 @@ impl TryFrom<&RpcValue> for DirResult {
             shvproto::Value::Bool(true) => Ok(DirResult::Exists(true)),
             shvproto::Value::Map(_) | shvproto::Value::IMap(_) =>
                 MethodInfo::try_from(rpcvalue).map(|_| DirResult::Exists(true)),
-            shvproto::Value::List(_) => Ok(DirResult::List(rpcvalue.try_into()?)),
+            shvproto::Value::List(lst) if lst.is_empty() => Ok(DirResult::Exists(false)),
+            shvproto::Value::List(_) => {
+                // Deprecated implementations of 'dir' return Vec<String> with one item to indicate
+                // existence.
+                if Vec::<String>::try_from(rpcvalue).is_ok_and(|v| v.len() == 1) {
+                    return Ok(DirResult::Exists(true));
+                }
+                // Otherwise, try to parse to Vec<MethodInfo>
+                rpcvalue.try_into().map(DirResult::List)
+            }
             _ => Err(format!("Wrong RpcValue type: {}", rpcvalue.type_name()))
         }
     }
