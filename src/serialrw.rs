@@ -320,7 +320,9 @@ mod test {
     use super::*;
     use crate::framerw::test::from_hex;
     use crate::RpcMessage;
-    use async_std::io::BufWriter;
+    use macro_rules_attribute::apply;
+    use smol_macros::test;
+    use smol::io::BufWriter;
     use shvproto::util::hex_dump;
     use crate::rpcframe::Protocol;
     use crate::util::hex_string;
@@ -331,7 +333,8 @@ mod test {
             .is_test(true)
             .try_init();
     }
-    #[async_std::test]
+
+    #[apply(test!)]
     async fn test_write_bytes() {
         for (data, esc_data) in [
             (&b"hello"[..], &b"hello"[..]),
@@ -351,7 +354,7 @@ mod test {
                 assert_eq!(&buff, esc_data);
             }
             {
-                let buffrd = async_std::io::BufReader::new(&*buff);
+                let buffrd = smol::io::BufReader::new(&*buff);
                 let mut rd = SerialFrameReader::new(buffrd);
                 let read_data = rd.read_escaped().await.unwrap();
                 assert_eq!(&read_data, data);
@@ -359,7 +362,7 @@ mod test {
         }
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn test_write_reset_session_frame() {
         init_log();
         let reset_frame_data = [STX, Protocol::ResetSession as u8, ETX];
@@ -390,7 +393,7 @@ mod test {
         }
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn test_write_read_frame() {
         init_log();
 
@@ -410,7 +413,7 @@ mod test {
                 let mut buff2 = prefix;
                 buff2.append(&mut buff.clone());
                 //debug!("bytes:\n{}\n-------------", hex_dump(&buff2));
-                let buffrd = async_std::io::BufReader::new(&*buff2);
+                let buffrd = smol::io::BufReader::new(&*buff2);
                 let mut rd = SerialFrameReader::new(buffrd).with_crc_check(with_crc);
                 let rd_frame = rd.receive_frame().await.unwrap();
                 assert_eq!(&rd_frame, &frame);
@@ -425,7 +428,7 @@ mod test {
                 let mut buff2 = prefix;
                 buff2.append(&mut buff.clone());
                 //debug!("bytes:\n{}\n-------------", hex_dump(&buff2));
-                let buffrd = async_std::io::BufReader::new(&*buff2);
+                let buffrd = smol::io::BufReader::new(&*buff2);
                 let mut rd = SerialFrameReader::new(buffrd).with_crc_check(with_crc);
                 let rd_frame = rd.receive_frame().await.unwrap();
                 assert_eq!(&rd_frame, &frame);
@@ -433,14 +436,14 @@ mod test {
         }
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn test_read_frame_by_chunks() {
         init_log();
 
         for chunks in [
             // msg: <1:1,8:1,9:"foo/bar",10:"baz">i{1:1}
             vec![
-                from_hex("STX 01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff ETX 44 cc 24 df"),
+                    from_hex("STX 01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff ETX 44 cc 24 df"),
             ],
             vec![
                 from_hex("STX 01 8b 41 41"),
@@ -470,16 +473,16 @@ mod test {
                 from_hex("12 53 57"),
                 from_hex("e5"),
             ],
-        ] {
-            debug!("hex: {chunks:?}");
-            let mut rd = SerialFrameReader::new(crate::framerw::test::Chunks { chunks }).with_crc_check(true);
-            let frame = rd.receive_frame().await;
-            debug!("frame: {:?}", &frame);
-            assert!(frame.is_ok());
-        };
+            ] {
+                debug!("hex: {chunks:?}");
+                let mut rd = SerialFrameReader::new(crate::framerw::test::Chunks { chunks }).with_crc_check(true);
+                let frame = rd.receive_frame().await;
+                debug!("frame: {:?}", &frame);
+                assert!(frame.is_ok());
+            };
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn test_read_multiframe_chunk() {
         init_log();
         for with_crc in [false, true] {
@@ -493,14 +496,14 @@ mod test {
                 ),
                 from_hex(
                     "STX 01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff ETX 44 cc 24 df
-                     01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff ETX 44 cc 24 df
-                 STX 01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff ETX 44 cc 24 df
-                 ESC 01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff     44 cc 24 df
-                 STX 01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff ETX 44 cc 24 df"
+                    01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff ETX 44 cc 24 df
+                    STX 01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff ETX 44 cc 24 df
+                    ESC 01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff     44 cc 24 df
+                    STX 01 8b 41 41 48 41 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 41 ff ETX 44 cc 24 df"
                 ),
             ] {
                 debug!("bytes:\n{}\n-------------", hex_dump(&data));
-                let buffrd = async_std::io::BufReader::new(&*data);
+                let buffrd = smol::io::BufReader::new(&*data);
                 let mut rd = SerialFrameReader::new(buffrd).with_crc_check(with_crc);
                 for _ in 0 .. 3 {
                     let frame = rd.receive_frame().await;
@@ -511,7 +514,7 @@ mod test {
         }
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn test_read_over_frame_size_limit() {
         init_log();
         for with_crc in [false, true] {
@@ -526,7 +529,7 @@ mod test {
             ] {
                 debug!("bytes:\n{}\n-------------", hex_dump(&data));
                 {
-                    let buffrd = async_std::io::BufReader::new(&*data);
+                    let buffrd = smol::io::BufReader::new(&*data);
                     let mut rd = SerialFrameReader::new(buffrd)
                         .with_crc_check(with_crc)
                         .with_frame_size_limit(30);
@@ -538,7 +541,7 @@ mod test {
                     }
                 }
                 {
-                    let buffrd = async_std::io::BufReader::new(&*data);
+                    let buffrd = smol::io::BufReader::new(&*data);
                     let mut rd = SerialFrameReader::new(buffrd)
                         .with_crc_check(with_crc)
                         .with_frame_size_limit(29);

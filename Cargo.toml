@@ -3,7 +3,7 @@ name = "shvrpc"
 description = "Rust implementation of the SHV-RPC protocol"
 license = "MIT"
 repository = "https://github.com/silicon-heaven/libshvrpc-rs"
-version = "7.1.9"
+version = "7.1.10"
 edition = "2024"
 
 [dependencies]
@@ -27,7 +27,9 @@ thiserror = { version = "2.0.16", optional = true }
 
 [dev-dependencies]
 env_logger = "0.11.5"
-async-std = { version = "1.12.0", features = ["attributes"] }
+macro_rules_attribute = "0.2.2"
+smol = "2"
+smol-macros = "0.1"
 
 [features]
 #async-std = ["dep:async-std"]

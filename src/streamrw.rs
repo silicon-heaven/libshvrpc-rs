@@ -167,13 +167,15 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
 #[cfg(test)]
 mod test {
     use log::debug;
-use shvproto::util::{hex_dump};
-use super::*;
+    use shvproto::util::{hex_dump};
+    use super::*;
     use crate::framerw::test::from_hex;
     use crate::framerw::test::Chunks;
     use crate::RpcMessage;
-    use async_std::io::BufWriter;
     use crate::util::hex_string;
+    use smol::io::BufWriter;
+    use macro_rules_attribute::apply;
+    use smol_macros::test;
 
     fn init_log() {
         let _ = env_logger::builder()
@@ -190,7 +192,8 @@ use super::*;
         }
         buff
     }
-    #[async_std::test]
+
+    #[apply(test!)]
     async fn test_send_frame() {
         init_log();
         for msg in [
@@ -205,13 +208,13 @@ use super::*;
             debug!("array: {}", hex_string(&buff, Some(" ")));
             debug!("bytes:\n{}\n-------------", hex_dump(&buff));
             {
-                let buffrd = async_std::io::BufReader::new(&*buff);
+                let buffrd = smol::io::BufReader::new(&*buff);
                 let mut rd = StreamFrameReader::new(buffrd);
                 let rd_frame = rd.receive_frame().await.unwrap();
                 assert_eq!(&rd_frame, &frame);
             }
             {
-                let buffrd = async_std::io::BufReader::new(&*buff);
+                let buffrd = smol::io::BufReader::new(&*buff);
                 let mut rd = StreamFrameReader::new(buffrd);
                 let rd_frame = rd.receive_frame().await.unwrap();
                 assert_eq!(&rd_frame, &frame);
@@ -219,13 +222,13 @@ use super::*;
         }
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn test_read_frame_by_chunks() {
         init_log();
         for chunks in [
             // <1:1,8:5,9:"foo/bar",10:"baz">i{1:"hello"}
             vec![
-                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+                    from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
             ],
             // chunk split after meta end
             vec![
@@ -250,30 +253,31 @@ use super::*;
                 from_hex("41 86 05 68 65 6c 6c"),
                 from_hex("6f ff"),
             ],
-        ] {
-            let mut rd = StreamFrameReader::new(Chunks { chunks });
-            let frame = rd.receive_frame().await;
-            assert!(frame.is_ok());
-        };
+            ] {
+                let mut rd = StreamFrameReader::new(Chunks { chunks });
+                let frame = rd.receive_frame().await;
+                assert!(frame.is_ok());
+            };
     }
-    #[async_std::test]
+
+    #[apply(test!)]
     async fn test_read_two_frames_more_chunks() {
         init_log();
         //debug!("test_read_two_frames_more_chunks");
         for chunks in [
             // <1:1,8:5,9:"foo/bar",10:"baz">i{1:"hello"}
             vec![
-                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff
-                          21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+                    from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff
+                        21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
             ],
             vec![
                 from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
                 from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
             ],
             vec![
-               from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff 21"),
-               from_hex("01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff"),
-               from_hex("ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+                from_hex("21 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff 21"),
+                from_hex("01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff"),
+                from_hex("ff 8a 41 86 05 68 65 6c 6c 6f ff"),
             ],
         ] {
             let mut rd = StreamFrameReader::new(Chunks { chunks });
@@ -283,7 +287,8 @@ use super::*;
             }
         };
     }
-    #[async_std::test]
+
+    #[apply(test!)]
     async fn test_read_big_frame_more_chunks() {
         init_log();
         let msg = RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 129][..]).into()));
@@ -321,14 +326,15 @@ use super::*;
             }
         }
     }
-    #[async_std::test]
+
+    #[apply(test!)]
     async fn test_read_faulty_frame_by_chunks() {
         init_log();
         for chunks in [
             // <1:1,8:5,9:"foo/bar",10:"baz">i{1:"hello"}
             // invalid protocol
             vec![
-                from_hex("21 10 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+                    from_hex("21 10 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
             ],
         ] {
             let mut rd = StreamFrameReader::new(Chunks { chunks });
@@ -337,15 +343,16 @@ use super::*;
             assert!(frame.is_err());
         };
     }
-    #[async_std::test]
+
+    #[apply(test!)]
     async fn test_read_jumbo_frame() {
         init_log();
         for chunks in [
             vec![
-                // 140737488355328u ==  0x800000000000
-                // 11110010|10000000|00000000|00000000|00000000|00000000|00000000
-                // f2 80 00 00 00 00 00
-                from_hex("f2 80 00 00 00 00 00 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
+                    // 140737488355328u ==  0x800000000000
+                    // 11110010|10000000|00000000|00000000|00000000|00000000|00000000
+                    // f2 80 00 00 00 00 00
+                    from_hex("f2 80 00 00 00 00 00 01 8b 41 41 48 45 49 86 07 66 6f 6f 2f 62 61 72 4a 86 03 62 61 7a ff 8a 41 86 05 68 65 6c 6c 6f ff"),
             ],
         ] {
             let mut rd = StreamFrameReader::new(Chunks { chunks })

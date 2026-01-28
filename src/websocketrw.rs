@@ -134,6 +134,8 @@ mod test {
     use super::*;
     use crate::RpcMessage;
     use std::task::Poll;
+    use macro_rules_attribute::apply;
+    use smol_macros::test;
 
     struct MockWebSocketSink<'a> {
         buf: &'a mut Vec<u8>,
@@ -176,7 +178,7 @@ mod test {
         buff
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn test_write_frame() {
         init_log();
         for msg in [
@@ -199,7 +201,7 @@ mod test {
         }
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn test_ignore_non_binary_mesage() {
         init_log();
         let msg = RpcMessage::new_request("foo/bar", "baz", Some("hello".into()));
