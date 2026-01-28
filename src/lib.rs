@@ -13,6 +13,12 @@ pub mod streamrw;
 #[cfg(feature = "websocket")]
 pub mod websocketrw;
 pub mod util;
+#[cfg(feature = "journal")]
+pub mod journalrw;
+#[cfg(feature = "journal")]
+pub mod journalentry;
+#[cfg(feature = "journal")]
+pub mod datachange;
 
 pub use rpcmessage::{RpcMessage, RpcMessageMetaTags};
 pub use rpcframe::RpcFrame;
