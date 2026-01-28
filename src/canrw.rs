@@ -621,6 +621,8 @@ mod tests {
     use futures::future::join;
     use futures::{FutureExt, StreamExt};
     use socketcan::{CanFdFrame, CanId, EmbeddedFrame};
+    use macro_rules_attribute::apply;
+    use smol_macros::test;
 
     use crate::framerw::{serialize_meta, FrameReader, FrameWriter};
     use crate::canrw::{CanFrameWriter, ShvCanParseError, SHVCAN_MASK};
@@ -717,7 +719,7 @@ mod tests {
         }
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn send_reset_session() {
         let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
         let (frames_tx, mut frames_rx) = futures::channel::mpsc::unbounded();
@@ -741,7 +743,7 @@ mod tests {
         assert!(sender_res.is_ok());
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn resend_on_bad_ack() {
         let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
         let (frames_tx, mut frames_rx) = futures::channel::mpsc::unbounded();
@@ -778,7 +780,7 @@ mod tests {
         assert!(sender_res.is_ok());
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn fail_on_bad_ack() {
         let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
         let (frames_tx, mut frames_rx) = futures::channel::mpsc::unbounded();
@@ -852,7 +854,7 @@ mod tests {
         assert_eq!(frame_count, expected_payloads.len());
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn send_rpc_message() {
         let msg = RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into()));
 
@@ -865,7 +867,7 @@ mod tests {
         run_send_rpc_message_test(msg, expected_payloads).await;
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn send_rpc_message_multiframe() {
         let msg = RpcMessage::create_request_with_id(
             1, "foo/bar", "xyz",
@@ -937,7 +939,7 @@ mod tests {
         }
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn receive_frame() {
         let rpc_frame = RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into())).to_frame().unwrap();
 
@@ -950,7 +952,7 @@ mod tests {
         run_receive_rpc_frame_test(rpc_frame, payloads).await;
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn receive_rpc_frame_more_payloads() {
         let frame = RpcMessage::create_request_with_id(
             1, "foo/bar", "xyz",
@@ -974,10 +976,10 @@ mod tests {
             ]
         ];
 
-        run_receive_rpc_frame_test(frame, payloads).await;
+            run_receive_rpc_frame_test(frame, payloads).await;
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn counter_changes_for_new_message() {
         let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
         let (frames_tx, mut frames_rx) = futures::channel::mpsc::unbounded();
@@ -1024,7 +1026,7 @@ mod tests {
         }
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn read_and_write() {
         let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
         let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
@@ -1048,7 +1050,7 @@ mod tests {
         }
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn read_and_write_64_bytes_frame() {
         let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
         let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
@@ -1070,7 +1072,7 @@ mod tests {
         assert_eq!(frame, rd_res.unwrap());
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn read_and_write_many_long_frames() {
         // Tests correct frame counters wrapping
         let (ack_tx, ack_rx) = futures::channel::mpsc::unbounded();
@@ -1092,7 +1094,7 @@ mod tests {
         }
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn read_skips_frame_counter_violation() {
         let (ack_tx, mut ack_rx) = futures::channel::mpsc::unbounded();
         let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();
@@ -1227,7 +1229,7 @@ mod tests {
         join(send_frames, read_fut).await;
     }
 
-    #[async_std::test]
+    #[apply(test!)]
     async fn read_skips_duplicate_frames() {
         let (ack_tx, mut ack_rx) = futures::channel::mpsc::unbounded();
         let (frames_tx, frames_rx) = futures::channel::mpsc::unbounded();

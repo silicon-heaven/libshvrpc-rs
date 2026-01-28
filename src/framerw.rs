@@ -215,7 +215,6 @@ pub(crate) mod test {
     use std::pin::Pin;
     use std::task::{Context, Poll};
     use std::task::Poll::Ready;
-    use async_std::io;
     use super::*;
 
     pub(crate) struct Chunks {
@@ -226,7 +225,7 @@ pub(crate) mod test {
             mut self: Pin<&mut Self>,
             _cx: &mut Context<'_>,
             buf: &mut [u8],
-        ) -> Poll<io::Result<usize>> {
+        ) -> Poll<smol::io::Result<usize>> {
             if self.chunks.is_empty() {
                 return Ready(Ok(0));
             }
