@@ -3,7 +3,7 @@ name = "shvrpc"
 description = "Rust implementation of the SHV-RPC protocol"
 license = "MIT"
 repository = "https://github.com/silicon-heaven/libshvrpc-rs"
-version = "7.1.10"
+version = "7.2.0"
 edition = "2024"
 
 [dependencies]
@@ -32,6 +32,7 @@ smol = "2"
 smol-macros = "0.1"
 
 [features]
-#async-std = ["dep:async-std"]
+default = []
+journal = []
 websocket = ["dep:tungstenite"]
 can = ["dep:socketcan", "dep:thiserror"]
