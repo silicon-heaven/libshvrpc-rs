@@ -1,3 +1,4 @@
+use bitflags::bitflags;
 use shvproto::{DateTime as ShvDateTime, RpcValue};
 
 #[derive(Clone,Debug)]
@@ -6,7 +7,27 @@ pub struct DataChange {
     pub value: RpcValue,
     pub date_time: Option<ShvDateTime>,
     pub short_time: Option<i32>,
-    pub value_flags: u64,
+    pub value_flags: ValueFlags,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct ValueFlags(u64);
+
+bitflags! {
+    impl ValueFlags: u64 {
+        const SPONTANEOUS = 1 << 1;
+        const PROVISIONAL = 1 << 2;
+
+        // The source may set any bits
+        const _ = !0;
+    }
+}
+
+impl Default for ValueFlags {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 #[derive(Copy,Clone,Debug)]
@@ -48,7 +69,7 @@ impl From<RpcValue> for DataChange {
         let short_time = meta_value(&value, DataChangeMetaTag::ShortTime)
             .map(|v| v.as_i32());
         let value_flags = meta_value(&value, DataChangeMetaTag::ValueFlags)
-            .map(|v| v.as_u64()).unwrap_or_default();
+            .map(|v| ValueFlags::from_bits_retain(v.as_u64())).unwrap_or_default();
 
         let unpacked_value = if let shvproto::Value::List(lst) = &value.value &&
             lst.len() == 1 &&
@@ -96,8 +117,8 @@ impl From<DataChange> for RpcValue {
         if let Some(short_time) = data_change.short_time {
             mm.insert(DataChangeMetaTag::ShortTime, short_time.into());
         }
-        if data_change.value_flags != 0 {
-            mm.insert(DataChangeMetaTag::ValueFlags, data_change.value_flags.into());
+        if !data_change.value_flags.is_empty() {
+            mm.insert(DataChangeMetaTag::ValueFlags, data_change.value_flags.bits().into());
         }
         res
     }
@@ -107,7 +128,7 @@ impl From<DataChange> for RpcValue {
 mod tests {
     use shvproto::{DateTime as ShvDateTime, RpcValue};
 
-    use crate::journalrw::VALUE_FLAG_PROVISIONAL_BIT;
+    use crate::datachange::ValueFlags;
 
     use super::DataChange;
 
@@ -131,7 +152,7 @@ mod tests {
         assert!(data_change.value.meta.is_some_and(|m| m.get(1).is_some_and(|v| v == &123.into())));
         assert_eq!(data_change.date_time, None);
         assert_eq!(data_change.short_time, None);
-        assert_eq!(data_change.value_flags, 4);
+        assert_eq!(data_change.value_flags, ValueFlags::PROVISIONAL);
 
         let notification_param = RpcValue::from_cpon("<1:5,10:4,11:true>[<1:123>true]").unwrap();
         let data_change = DataChange::from(notification_param);
@@ -139,7 +160,7 @@ mod tests {
         assert!(data_change.value.meta.is_none());
         assert_eq!(data_change.date_time, None);
         assert_eq!(data_change.short_time, None);
-        assert_eq!(data_change.value_flags, 4);
+        assert_eq!(data_change.value_flags, ValueFlags::PROVISIONAL);
     }
 
     #[test]
@@ -148,7 +169,7 @@ mod tests {
             value: 123.into(),
             date_time: None,
             short_time: None,
-            value_flags: 0,
+            value_flags: ValueFlags::empty(),
         };
         let rv: RpcValue = data_change.clone().into();
         assert_eq!(data_change, rv.into());
@@ -157,7 +178,7 @@ mod tests {
             value: "foo".into(),
             date_time: Some(ShvDateTime::from_iso_str("2025-07-14T15:01:00.201Z").unwrap()),
             short_time: Some(10),
-            value_flags: 1 << VALUE_FLAG_PROVISIONAL_BIT,
+            value_flags: ValueFlags::PROVISIONAL,
         };
         let rv: RpcValue = data_change.clone().into();
         assert_eq!(data_change, rv.into());
