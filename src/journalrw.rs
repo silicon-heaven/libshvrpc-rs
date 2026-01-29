@@ -7,15 +7,13 @@ use std::fmt::Display;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::error::Error;
+use crate::datachange::ValueFlags;
 use crate::metamethod::AccessLevel;
 use crate::journalentry::JournalEntry;
 
 const JOURNAL_ENTRIES_SEPARATOR: &str = "\t";
 const METH_GET: &str = "get";
 const SIG_CHNG: &str = "chng";
-
-pub const VALUE_FLAG_SPONTANEOUS_BIT: i32 = 1;
-pub const VALUE_FLAG_PROVISIONAL_BIT: i32 = 2;
 
 fn parse_journal_entry_log2(line: &str) -> Result<JournalEntry, Box<dyn Error + Send + Sync>> {
     let parts: Vec<&str> = line.split(JOURNAL_ENTRIES_SEPARATOR).collect();
@@ -33,7 +31,7 @@ fn parse_journal_entry_log2(line: &str) -> Result<JournalEntry, Box<dyn Error + 
     let value = RpcValue::from_cpon(value).map_err(|err| format!("Cannot parse a CPON value: `{value}` on line: {line}, error: {err}"))?;
     let short_time = parts_iter.next().unwrap_or_default().parse().unwrap_or(-1);
     let domain = parts_iter.next();
-    let value_flags = parts_iter.next().unwrap_or_default().parse().unwrap_or(0);
+    let value_flags = ValueFlags::from_bits_retain(parts_iter.next().unwrap_or_default().parse().unwrap_or(0));
     let user_id = parts_iter.next().and_then(|u| if u.is_empty() { None } else { Some(u.to_string()) });
 
     Ok(JournalEntry {
@@ -45,8 +43,8 @@ fn parse_journal_entry_log2(line: &str) -> Result<JournalEntry, Box<dyn Error + 
         access_level: AccessLevel::Read as _,
         short_time,
         user_id,
-        repeat: value_flags & (1 << VALUE_FLAG_SPONTANEOUS_BIT) == 0,
-        provisional: value_flags & (1 << VALUE_FLAG_PROVISIONAL_BIT) != 0,
+        repeat: !value_flags.contains(ValueFlags::SPONTANEOUS),
+        provisional: value_flags.contains(ValueFlags::PROVISIONAL),
     })
 }
 
@@ -114,14 +112,14 @@ where
             if entry.short_time >= 0 { entry.short_time.to_string() } else { "".into() },
             entry.signal.clone(),
             {
-                let mut value_flags = 0u32;
+                let mut value_flags = ValueFlags::empty();
                 if !entry.repeat {
-                    value_flags |= 1 << VALUE_FLAG_SPONTANEOUS_BIT;
+                    value_flags.insert(ValueFlags::SPONTANEOUS);
                 }
                 if entry.provisional {
-                    value_flags |= 1 << VALUE_FLAG_PROVISIONAL_BIT;
+                    value_flags.insert(ValueFlags::PROVISIONAL);
                 }
-                value_flags.to_string()
+                value_flags.bits().to_string()
             },
             entry.user_id.clone().unwrap_or_default(),
         ].join(JOURNAL_ENTRIES_SEPARATOR) + "\n";
@@ -210,6 +208,7 @@ fn rpcvalue_to_journal_entry(entry: &RpcValue, paths_dict: &BTreeMap<i32, String
         },
         None => 0,
     };
+    let value_flags = ValueFlags::from_bits_retain(value_flags);
 
     let user_id = row.next().unwrap_or_default();
     let user_id = match &user_id.value {
@@ -227,8 +226,8 @@ fn rpcvalue_to_journal_entry(entry: &RpcValue, paths_dict: &BTreeMap<i32, String
         access_level: AccessLevel::Read as _,
         short_time,
         user_id,
-        repeat: value_flags & (1 << VALUE_FLAG_SPONTANEOUS_BIT) == 0,
-        provisional: value_flags & (1 << VALUE_FLAG_PROVISIONAL_BIT) != 0,
+        repeat: !value_flags.contains(ValueFlags::SPONTANEOUS),
+        provisional: value_flags.contains(ValueFlags::PROVISIONAL),
     })
 }
 
@@ -251,12 +250,12 @@ pub(crate) fn journal_entry_to_rpcvalue(
         entry.path.clone().into()
     };
 
-    let mut value_flags: u64 = 0;
+    let mut value_flags = ValueFlags::empty();
     if !entry.repeat {
-        value_flags |= 1 << VALUE_FLAG_SPONTANEOUS_BIT;
+        value_flags.insert(ValueFlags::SPONTANEOUS);
     }
     if entry.provisional {
-        value_flags |= 1 << VALUE_FLAG_PROVISIONAL_BIT;
+        value_flags.insert(ValueFlags::PROVISIONAL);
     }
 
     let domain = if entry.signal == SIG_CHNG {
@@ -271,7 +270,7 @@ pub(crate) fn journal_entry_to_rpcvalue(
         entry.value.clone(),
         entry.short_time,
         domain,
-        value_flags,
+        value_flags.bits(),
         entry.user_id.clone(),
     ).into()
 }
