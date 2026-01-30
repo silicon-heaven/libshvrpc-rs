@@ -127,7 +127,7 @@ impl RpcFrame {
         if src.is_request() {
             if let Some(rqid) = src.request_id() {
                 let mut dest = MetaMap::new();
-                dest.insert(rpctype::Tag::MetaTypeId as i32, RpcValue::from(rpctype::GlobalNS::MetaTypeID::ChainPackRpcMessage as i32));
+                dest.insert(rpctype::Tag::MetaTypeId as i32, RpcValue::from(rpctype::global_ns::MetaTypeID::ChainPackRpcMessage as i32));
                 dest.set_request_id(rqid);
                 dest.set_caller_ids(&src.caller_ids());
                 return Ok(dest)

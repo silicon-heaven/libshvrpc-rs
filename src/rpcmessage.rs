@@ -1,9 +1,7 @@
 use crate::metamethod::AccessLevel;
 use shvproto::{RpcValue, Value};
 use shvproto::metamap::*;
-// use std::collections::BTreeMap;
 use shvproto::rpcvalue::{IMap, List};
-// use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -275,7 +273,7 @@ impl RpcMessage {
 impl Default for RpcMessage {
     fn default() -> Self {
         let mut mm = MetaMap::new();
-        mm.insert(rpctype::Tag::MetaTypeId as i32, RpcValue::from(rpctype::GlobalNS::MetaTypeID::ChainPackRpcMessage as i32));
+        mm.insert(rpctype::Tag::MetaTypeId as i32, RpcValue::from(rpctype::global_ns::MetaTypeID::ChainPackRpcMessage as i32));
         //mm.insert(Tag::Method as i32, RpcValue::from(method));
         RpcMessage(RpcValue::new(IMap::new().into(),Some(mm)))
     }

@@ -38,13 +38,13 @@ enum DataChangeMetaTag {
     SpecialListValue,
 }
 
-fn meta_value<I: shvproto::metamap::GetIndex>(rv: &RpcValue, key: I) -> Option<&RpcValue> {
+pub fn meta_value<I: shvproto::metamap::GetIndex>(rv: &RpcValue, key: I) -> Option<&RpcValue> {
     rv.meta.as_ref().and_then(|meta| meta.get(key))
 }
 
-fn is_data_change(rv: &RpcValue) -> bool {
-    meta_value(rv, crate::rpctype::Tag::MetaTypeNameSpaceId as usize).unwrap_or_default().as_int() == crate::rpctype::NameSpaceID::Global as i64 &&
-        meta_value(rv, crate::rpctype::Tag::MetaTypeId as usize).unwrap_or_default().as_int() == crate::rpctype::GlobalNS::MetaTypeID::ValueChange as i64
+pub fn is_data_change(rv: &RpcValue) -> bool {
+    meta_value(rv, crate::rpctype::Tag::MetaTypeNameSpaceId as usize).unwrap_or_default().as_int() == crate::rpctype::global_ns::NAMESPACE_ID &&
+        meta_value(rv, crate::rpctype::Tag::MetaTypeId as usize).unwrap_or_default().as_int() == crate::rpctype::global_ns::MetaTypeID::ValueChange as i64
 }
 
 impl shvproto::metamap::GetIndex for DataChangeMetaTag {
@@ -110,7 +110,7 @@ impl From<DataChange> for RpcValue {
         };
         let mm = res.meta
             .get_or_insert_default()
-            .insert(crate::rpctype::Tag::MetaTypeId as usize, RpcValue::from(crate::rpctype::GlobalNS::MetaTypeID::ValueChange as i64));
+            .insert(crate::rpctype::Tag::MetaTypeId as usize, RpcValue::from(crate::rpctype::global_ns::MetaTypeID::ValueChange as i64));
         if let Some(date_time) = data_change.date_time {
             mm.insert(DataChangeMetaTag::DateTime, date_time.into());
         }
