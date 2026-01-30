@@ -1,22 +1,12 @@
-#[allow(dead_code)]
 pub enum Tag {
     MetaTypeId = 1,
     MetaTypeNameSpaceId,
     USER = 8
 }
 
-#[allow(dead_code)]
-pub enum NameSpaceID
-{
-    Global = 0,
-    Elesys,
-    Eyas,
-}
+pub mod global_ns {
+    pub const NAMESPACE_ID: i64 = 0;
 
-#[allow(non_snake_case)]
-pub mod GlobalNS
-{
-    #[allow(dead_code)]
     pub enum MetaTypeID
     {
         ChainPackRpcMessage = 1,
@@ -24,5 +14,8 @@ pub mod GlobalNS
         TunnelCtl,
         AccessGrantLogin,
         ValueChange,
+        NodeDrop,
+        ShvJournalEntry = 8,
+        NodePropertyMap,
     }
 }
