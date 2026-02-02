@@ -14,7 +14,7 @@ sha1 = "0.10.6"
 hex = "0.4.3"
 url = { version = "2.5.4", features = ["serde"] }
 glob = "0.3.1"
-duration-str = "0.18.0"
+duration-str = "0.19.0"
 async-trait = "0.1.77"
 crc = "3.0.1"
 serde = "1.0.193"
