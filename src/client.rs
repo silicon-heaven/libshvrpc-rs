@@ -170,7 +170,7 @@ pub struct ClientConfig {
     pub heartbeat_interval: Duration,
     #[serde(
         default,
-        deserialize_with = "duration_str::deserialize_option_duration",
+        deserialize_with = "duration_str::deserialize_duration",
         serialize_with = "serialize_option_duration_as_string"
     )]
     pub reconnect_interval: Option<Duration>,
