@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use shvproto::RpcValue;
 
-use crate::metamethod::{AccessLevel, DirAttribute};
+use crate::metamethod::{AccessLevel, DirAttribute, Flags};
 
 #[derive(Debug,PartialEq)]
 pub enum LsParam {
@@ -116,10 +116,10 @@ impl From<DirParam> for RpcValue {
 }
 
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct MethodInfo {
     pub name: String,
-    pub flags: u32,
+    pub flags: Flags,
     pub access_level: AccessLevel,
     pub param: String,
     pub result: String,
@@ -226,7 +226,7 @@ impl TryFrom<&RpcValue> for MethodInfo {
                 // Fallback for deprecated format where only method name is provided
                 Ok(MethodInfo {
                     name: method_name.to_string(),
-                    flags: 0,
+                    flags: Flags::empty(),
                     access_level: AccessLevel::Read,
                     param: Default::default(),
                     result: Default::default(),
@@ -300,7 +300,7 @@ impl TryFrom<RpcValue> for DirResult {
 mod test {
     use std::collections::BTreeMap;
 
-    use crate::metamethod::Flag;
+    use crate::metamethod::Flags;
 
     use super::*;
 
@@ -322,7 +322,7 @@ mod test {
     fn method_info() -> MethodInfo {
         MethodInfo {
             name: "method".to_string(),
-            flags: Flag::IsGetter.into(),
+            flags: Flags::IsGetter,
             access_level: AccessLevel::Read,
             param: "param".to_string(),
             result: "result".to_string(),
@@ -334,7 +334,7 @@ mod test {
     fn method_info_from_rpcvalue() {
         let rv_map: RpcValue = shvproto::make_map!(
             "name" => "method",
-            "flags" => Flag::IsGetter as u32,
+            "flags" => Flags::IsGetter,
             "access" => "rd",
             "param" => "param",
             "result" => "result",
@@ -344,7 +344,7 @@ mod test {
 
         let rv_map: RpcValue = shvproto::make_map!(
             "name" => "method",
-            "flags" => Flag::IsGetter as u32,
+            "flags" => Flags::IsGetter,
             "accessGrant" => "rd",
             "param" => "param",
             "result" => "result",
@@ -354,7 +354,7 @@ mod test {
 
         let rv_imap: RpcValue = [
             (i32::from(DirAttribute::Name), RpcValue::from("method")),
-            (i32::from(DirAttribute::Flags), RpcValue::from(Flag::IsGetter as u32)),
+            (i32::from(DirAttribute::Flags), RpcValue::from(Flags::IsGetter)),
             (i32::from(DirAttribute::AccessLevel), RpcValue::from(AccessLevel::Read as i32)),
             (i32::from(DirAttribute::Param), RpcValue::from("param")),
             (i32::from(DirAttribute::Result), RpcValue::from("result")),
@@ -368,7 +368,7 @@ mod test {
     fn method_info_from_rpcvalue_missing_field() {
         let rv_map: RpcValue = shvproto::make_map!(
             "name" => "method",
-            "flags" => Flag::IsGetter as u32,
+            "flags" => Flags::IsGetter,
             // "access" => AccessLevel::Read as i32,
             "param" => "param",
             "result" => "result",
@@ -382,7 +382,7 @@ mod test {
     fn method_info_from_rpcvalue_wrong_field_type() {
         let rv_map: RpcValue = shvproto::make_map!(
             "name" => "method",
-            "flags" => Flag::IsGetter as u32,
+            "flags" => Flags::IsGetter,
             "access" => AccessLevel::Read as i32,
             "param" => (),
             "result" => "result",
@@ -421,7 +421,7 @@ mod test {
         let rv: RpcValue = [
             shvproto::make_map!(
                 "name" => "method",
-                "flags" => Flag::IsGetter as u32,
+                "flags" => Flags::IsGetter,
                 "access" => "rd",
                 "param" => "param",
                 "result" => "result",
