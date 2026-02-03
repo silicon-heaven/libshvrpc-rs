@@ -1,34 +1,66 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
+use bitflags::bitflags;
 use shvproto::RpcValue;
 
-#[derive(Debug)]
-pub enum Flag {
-    None = 0,
-    IsSignal = 1 << 0,
-    IsGetter = 1 << 1,
-    IsSetter = 1 << 2,
-    LargeResultHint = 1 << 3,
-    UserIDRequired = 1 << 5,
-}
-impl From<Flag> for u32 {
-    fn from(val: Flag) -> Self {
-        val as u32
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Flags(u32);
+
+bitflags! {
+    impl Flags: u32 {
+        const None = 0;
+        const IsSignal = 1 << 0;
+        const IsGetter = 1 << 1;
+        const IsSetter = 1 << 2;
+        const LargeResultHint = 1 << 3;
+        const UserIDRequired = 1 << 5;
+
+        // The source may set any bits
+        const _ = !0;
     }
 }
-impl From<u8> for Flag {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Flag::None,
-            1 => Flag::IsSignal,
-            2 => Flag::IsGetter,
-            4 => Flag::IsSetter,
-            8 => Flag::LargeResultHint,
-            _ => Flag::None,
+
+impl Default for Flags {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+impl From<&Flags> for RpcValue {
+    fn from(value: &Flags) -> Self {
+        RpcValue::from(value.bits())
+    }
+}
+
+impl From<Flags> for RpcValue {
+    fn from(value: Flags) -> Self {
+        RpcValue::from(value.bits())
+    }
+}
+
+impl TryFrom<&RpcValue> for Flags {
+    type Error = String;
+
+    fn try_from(value: &RpcValue) -> Result<Self, Self::Error> {
+        use shvproto::rpcvalue::Value;
+        match &value.value {
+            Value::Int(val) => Ok(Flags::from_bits_retain(*val as u32)),
+            Value::UInt(val) => Ok(Flags::from_bits_retain(*val as u32)),
+            _ => Err(format!("Wrong RpcValue type for Flags: {}", value.type_name())),
         }
     }
 }
+
+impl TryFrom<RpcValue> for Flags {
+    type Error = String;
+
+    fn try_from(value: RpcValue) -> Result<Self, Self::Error> {
+        Flags::try_from(&value)
+    }
+}
+
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 pub enum AccessLevel {
     #[default]
@@ -142,7 +174,7 @@ impl From<&SignalsDefinition> for BTreeMap<String, Option<String>> {
 #[derive(Debug, Default, Clone)]
 pub struct MetaMethod {
     pub name: Cow<'static, str>,
-    pub flags: u32,
+    pub flags: Flags,
     pub access: AccessLevel,
     pub param: Cow<'static, str>,
     pub result: Cow<'static, str>,
@@ -159,7 +191,7 @@ pub enum DirFormat {
 impl MetaMethod {
     pub const fn new_static(
         name: &'static str,
-        flags: u32,
+        flags: Flags,
         access: AccessLevel,
         param: &'static str,
         result: &'static str,
@@ -179,7 +211,7 @@ impl MetaMethod {
 
     pub fn new(
         name: impl Into<Cow<'static, str>>,
-        flags: u32,
+        flags: Flags,
         access: AccessLevel,
         param: impl Into<Cow<'static, str>>,
         result: impl Into<Cow<'static, str>>,
@@ -205,7 +237,7 @@ impl MetaMethod {
         {
                 let mut m = BTreeMap::<K, RpcValue>::new();
                 m.insert(DirAttribute::Name.into(), mm.name.as_ref().into());
-                m.insert(DirAttribute::Flags.into(), mm.flags.into());
+                m.insert(DirAttribute::Flags.into(), mm.flags.bits().into());
                 m.insert(DirAttribute::Param.into(), mm.param.as_ref().into());
                 m.insert(DirAttribute::Result.into(), mm.result.as_ref().into());
                 m.insert(DirAttribute::AccessLevel.into(), (mm.access as i32).into());
