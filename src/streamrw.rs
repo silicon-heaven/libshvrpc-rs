@@ -69,6 +69,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                                 "Cannot read frame length, invalid byte received".into()
                             ))
                         }
+                        ReadErrorReason::NumericValueOverflow => unreachable!("ChainPackReader::read_uint_data never returns NumericOverflow"),
                     }
                 }
             };
