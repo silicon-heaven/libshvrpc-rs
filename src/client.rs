@@ -16,14 +16,14 @@ use crate::rpcmessage::RpcMessageMetaTags;
 
 #[derive(Copy, Clone, Debug)]
 pub enum LoginType {
-    PLAIN,
-    SHA1,
+    Plain,
+    Sha1,
 }
 impl LoginType {
     pub fn to_str(&self) -> &str {
         match self {
-            LoginType::PLAIN => "PLAIN",
-            LoginType::SHA1 => "SHA1",
+            LoginType::Plain => "PLAIN",
+            LoginType::Sha1 => "SHA1",
         }
     }
 }
@@ -49,7 +49,7 @@ impl Default for LoginParams {
         LoginParams {
             user: "".to_string(),
             password: "".to_string(),
-            login_type: LoginType::SHA1,
+            login_type: LoginType::Sha1,
             device_id: "".to_string(),
             mount_point: "".to_string(),
             heartbeat_interval: Duration::from_secs(60),
@@ -135,7 +135,7 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
             .as_str();
         debug!("\t nonce received: {nonce}");
         let mut login_params = login_params.clone();
-        if matches!(login_params.login_type, LoginType::SHA1) {
+        if matches!(login_params.login_type, LoginType::Sha1) {
             login_params.password = sha1_password_hash(login_params.password.as_bytes(), nonce.as_bytes());
         }
         let rq = RpcMessage::new_request("", "login").with_param(login_params);
