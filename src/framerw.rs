@@ -166,7 +166,8 @@ pub trait FrameWriter {
         self.send_request_user_id(shv_path, method, param, None).await
     }
     async fn send_request_user_id(&mut self, shv_path: &str, method: &str, param: Option<RpcValue>, user_id: Option<&str>) -> crate::Result<RqId> {
-        let mut rpcmsg = RpcMessage::new_request(shv_path, method, param);
+        let mut rpcmsg = RpcMessage::new_request(shv_path, method);
+        rpcmsg.set_param_opt(param);
         if let Some(user_id) = user_id {
             rpcmsg.set_user_id(user_id);
         }

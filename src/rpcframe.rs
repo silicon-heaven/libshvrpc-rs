@@ -175,10 +175,10 @@ impl fmt::Display for RpcFrame {
 impl rpcmessage::RpcMessageMetaTags for RpcFrame {
     type Target = RpcFrame;
 
-    fn tag(&self, id: i32) -> Option<&RpcValue> {
+    fn tag(&self, id: impl Into<i32>) -> Option<&RpcValue> {
         self.meta.tag(id)
     }
-    fn set_tag(&mut self, id: i32, val: Option<RpcValue>) -> &mut Self::Target {
+    fn set_tag(&mut self, id: impl Into<i32>, val: Option<impl Into<RpcValue>>) -> &mut Self::Target {
         self.meta.set_tag(id, val);
         self
     }
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn rpcframe_is_error() {
-        let msg = RpcMessage::new_request("foo", "bar", None);
+        let msg = RpcMessage::new_request("foo", "bar");
         let mut resp = msg.prepare_response().unwrap();
         resp.set_error(RpcError::new(RpcErrorCode::PermissionDenied, "msg"));
         let frame = RpcFrame::from_rpcmessage(&resp).unwrap();

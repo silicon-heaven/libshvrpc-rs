@@ -231,10 +231,10 @@ fn rpcvalue_to_journal_entry(entry: &RpcValue, paths_dict: &BTreeMap<i32, String
     })
 }
 
-pub(crate) fn journal_entry_to_rpcvalue(
+pub(crate) fn journal_entry_to_rpclist(
     entry: &JournalEntry,
-    path_cache: &mut Option<BTreeMap<String, i32>>,
-) -> RpcValue {
+    path_cache: Option<&mut BTreeMap<String, i32>>,
+) -> shvproto::List {
     let path_value: RpcValue = if let Some(cache) = path_cache {
         // If path already present, use the existing index; otherwise insert new one.
         let idx = match cache.get(&entry.path) {
@@ -272,7 +272,7 @@ pub(crate) fn journal_entry_to_rpcvalue(
         domain,
         value_flags.bits(),
         entry.user_id.clone(),
-    ).into()
+    )
 }
 
 pub fn journal_entries_to_rpcvalue<'a>(
@@ -283,7 +283,7 @@ pub fn journal_entries_to_rpcvalue<'a>(
     let mut path_cache = with_paths_dict.then(BTreeMap::new);
     let result: RpcValue = entries
         .into_iter()
-        .map(|entry| journal_entry_to_rpcvalue(entry, &mut path_cache))
+        .map(|entry| journal_entry_to_rpclist(entry, path_cache.as_mut()))
         .collect::<Vec<_>>()
         .into();
 

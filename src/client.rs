@@ -58,30 +58,36 @@ impl Default for LoginParams {
     }
 }
 
-impl LoginParams {
-    pub fn to_rpcvalue(&self) -> RpcValue {
+impl From<LoginParams> for RpcValue {
+    fn from(value: LoginParams) -> Self {
         let mut map = shvproto::Map::new();
         let mut login = shvproto::Map::new();
-        login.insert("user".into(), RpcValue::from(&self.user));
-        login.insert("password".into(), RpcValue::from(&self.password));
-        login.insert("type".into(), RpcValue::from(self.login_type.to_str()));
+        login.insert("user".into(), RpcValue::from(value.user));
+        login.insert("password".into(), RpcValue::from(value.password));
+        login.insert("type".into(), RpcValue::from(value.login_type.to_str()));
         map.insert("login".into(), RpcValue::from(login));
         let mut options = shvproto::Map::new();
-        options.insert("idleWatchDogTimeOut".into(), RpcValue::from((self.heartbeat_interval.as_secs() * 3) as i64));
+        options.insert("idleWatchDogTimeOut".into(), RpcValue::from((value.heartbeat_interval.as_secs() * 3) as i64));
         let mut device = shvproto::Map::new();
-        if !self.device_id.is_empty() {
-            device.insert("deviceId".into(), RpcValue::from(&self.device_id));
-        } else if !self.mount_point.is_empty() {
-            device.insert("mountPoint".into(), RpcValue::from(&self.mount_point));
+        if !value.device_id.is_empty() {
+            device.insert("deviceId".into(), RpcValue::from(value.device_id));
+        } else if !value.mount_point.is_empty() {
+            device.insert("mountPoint".into(), RpcValue::from(value.mount_point));
         }
         if !device.is_empty() {
             options.insert("device".into(), RpcValue::from(device));
         }
-        if !self.user_agent.is_empty() {
-            options.insert("userAgent".into(), RpcValue::from(&self.user_agent));
+        if !value.user_agent.is_empty() {
+            options.insert("userAgent".into(), RpcValue::from(value.user_agent));
         }
         map.insert("options".into(), RpcValue::from(options));
         RpcValue::from(map)
+    }
+}
+
+impl From<&LoginParams> for RpcValue {
+    fn from(value: &LoginParams) -> Self {
+        value.clone().into()
     }
 }
 
@@ -112,7 +118,7 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
     }
     'session_loop: loop {
         debug!("\t send hello");
-        let rq = RpcMessage::new_request("", "hello", None);
+        let rq = RpcMessage::new_request("", "hello");
         let hello_rq_id = rq.request_id();
         frame_writer.send_message(rq).await?;
         let resp = match get_response(hello_rq_id, frame_reader).await? {
@@ -132,7 +138,7 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
         if matches!(login_params.login_type, LoginType::SHA1) {
             login_params.password = sha1_password_hash(login_params.password.as_bytes(), nonce.as_bytes());
         }
-        let rq = RpcMessage::new_request("", "login", Some(login_params.to_rpcvalue()));
+        let rq = RpcMessage::new_request("", "login").with_param(login_params);
         let login_rq_id = rq.request_id();
         debug!("\t send login");
         frame_writer.send_message(rq).await?;

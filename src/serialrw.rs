@@ -398,7 +398,7 @@ mod test {
         init_log();
 
         for with_crc in [false, true] {
-            let msg = RpcMessage::new_request("foo/bar", "baz", Some(with_crc.into()));
+            let msg = RpcMessage::new_request("foo/bar", "baz").with_param(with_crc);
             let frame = msg.to_frame().unwrap();
             let mut buff: Vec<u8> = vec![];
             let buffwr = BufWriter::new(&mut buff);
