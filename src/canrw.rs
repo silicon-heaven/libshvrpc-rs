@@ -856,7 +856,7 @@ mod tests {
 
     #[apply(test!)]
     async fn send_rpc_message() {
-        let msg = RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into()));
+        let msg = RpcMessage::create_request_with_id(1, "foo/bar", "xyz").with_param(42);
 
         let expected_payloads: &[&[u8]] = &[&[
             CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
@@ -869,10 +869,8 @@ mod tests {
 
     #[apply(test!)]
     async fn send_rpc_message_multiframe() {
-        let msg = RpcMessage::create_request_with_id(
-            1, "foo/bar", "xyz",
-            Some("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".into())
-        );
+        let msg = RpcMessage::create_request_with_id(1, "foo/bar", "xyz")
+            .with_param("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
 
         let expected_payloads: &[&[u8]] = &[
             &[
@@ -941,7 +939,10 @@ mod tests {
 
     #[apply(test!)]
     async fn receive_frame() {
-        let rpc_frame = RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into())).to_frame().unwrap();
+        let rpc_frame = RpcMessage::create_request_with_id(1, "foo/bar", "xyz")
+            .with_param(42)
+            .to_frame()
+            .unwrap();
 
         let payloads: &[&[u8]] = &[&[
             CHAINPACK, 0x8b, 0x41, 0x41, 0x48, 0x41, 0x49, 0x86, 0x07,
@@ -954,10 +955,10 @@ mod tests {
 
     #[apply(test!)]
     async fn receive_rpc_frame_more_payloads() {
-        let frame = RpcMessage::create_request_with_id(
-            1, "foo/bar", "xyz",
-            Some("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".into())
-        ).to_frame().unwrap();
+        let frame = RpcMessage::create_request_with_id(1, "foo/bar", "xyz")
+            .with_param("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+            .to_frame()
+            .unwrap();
 
         let payloads: &[&[u8]] = &[
             &[
@@ -988,9 +989,9 @@ mod tests {
         const DEVICE_ADDR: u8 = 0x01;
 
         let msgs = [
-            RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into())),
-            RpcMessage::create_request_with_id(2, "foo/bar", "baz", Some(true.into())),
-            RpcMessage::create_request_with_id(3, "foo/bar", "anything", Some("abcd".into())),
+            RpcMessage::create_request_with_id(1, "foo/bar", "xyz").with_param(42),
+            RpcMessage::create_request_with_id(2, "foo/bar", "baz").with_param(true),
+            RpcMessage::create_request_with_id(3, "foo/bar", "anything").with_param("abcd"),
         ];
 
         let mut send_fut = pin!(async move {
@@ -1035,9 +1036,9 @@ mod tests {
         const DEVICE_ADDR: u8 = 0x01;
 
         let frames = [
-            RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into())).to_frame().unwrap(),
-            RpcMessage::create_request_with_id(2, "foo/bar", "baz", Some(true.into())).to_frame().unwrap(),
-            RpcMessage::create_request_with_id(3, "foo/bar", "anything", Some("abcd".into())).to_frame().unwrap(),
+            RpcMessage::create_request_with_id(1, "foo/bar", "xyz").with_param(42).to_frame().unwrap(),
+            RpcMessage::create_request_with_id(2, "foo/bar", "baz").with_param(true).to_frame().unwrap(),
+            RpcMessage::create_request_with_id(3, "foo/bar", "anything").with_param("abcd").to_frame().unwrap(),
         ];
 
         let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, PEER_ADDR, DEVICE_ADDR);
@@ -1058,7 +1059,7 @@ mod tests {
         const PEER_ADDR: u8 = 0x23;
         const DEVICE_ADDR: u8 = 0x01;
 
-        let frame = RpcMessage::create_request_with_id(4, "foo/bar", "xyz", Some("0123456789abcdefghijklmnopqrstuvwx".into())).to_frame().unwrap();
+        let frame = RpcMessage::create_request_with_id(4, "foo/bar", "xyz").with_param("0123456789abcdefghijklmnopqrstuvwx").to_frame().unwrap();
 
         // Maximum size of payload that fits to a single frame (2 extra bytes for destination address and frame_counter)
         const PAYLOAD_SIZE: usize = 62;
@@ -1081,7 +1082,10 @@ mod tests {
         const PEER_ADDR: u8 = 0x23;
         const DEVICE_ADDR: u8 = 0x01;
 
-        let generate_frame = |idx| RpcMessage::create_request_with_id(idx, "foo/bar", "xyz", Some("abc".repeat(idx as usize * 100).into())).to_frame().unwrap();
+        let generate_frame = |idx| RpcMessage::create_request_with_id(idx, "foo/bar", "xyz")
+            .with_param("abc".repeat(idx as usize * 100))
+            .to_frame()
+            .unwrap();
 
         let mut wr = CanFrameWriter::new(frames_tx, ack_rx, 0, PEER_ADDR, DEVICE_ADDR);
         let mut rd = CanFrameReader::new(frames_rx, ack_tx, 0, PEER_ADDR);
@@ -1216,12 +1220,10 @@ mod tests {
         let read_fut = pin!(async move {
             let frame = rd.receive_frame().await.unwrap();
             assert_eq!(
-                RpcMessage::create_request_with_id(
-                    1,
-                    "foo/bar",
-                    "xyz",
-                    Some("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".into())
-                ).to_frame().unwrap(),
+                RpcMessage::create_request_with_id(1, "foo/bar", "xyz")
+                .with_param("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                .to_frame()
+                .unwrap(),
                 frame
             );
         }.fuse());
@@ -1241,9 +1243,9 @@ mod tests {
 
         let read_fut = pin!(async move {
             let frame = rd.receive_frame().await.unwrap();
-            assert_eq!(frame, RpcMessage::create_request_with_id(1, "foo/bar", "xyz", Some(42.into())).to_frame().unwrap());
+            assert_eq!(frame, RpcMessage::create_request_with_id(1, "foo/bar", "xyz").with_param(42).to_frame().unwrap());
             let frame = rd.receive_frame().await.unwrap();
-            assert_eq!(frame, RpcMessage::create_request_with_id(2, "foo/bar", "xyz", Some(43.into())).to_frame().unwrap());
+            assert_eq!(frame, RpcMessage::create_request_with_id(2, "foo/bar", "xyz").with_param(43).to_frame().unwrap());
         }.fuse());
 
         let send_frames = pin!(async move {

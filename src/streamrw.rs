@@ -198,8 +198,8 @@ mod test {
     async fn test_send_frame() {
         init_log();
         for msg in [
-            RpcMessage::new_request("foo/bar", "baz1", Some("hello".into())),
-            RpcMessage::new_request("foo/bar", "baz2", Some((&[0_u8; 128][..]).into())),
+            RpcMessage::new_request("foo/bar", "baz1").with_param("hello"),
+            RpcMessage::new_request("foo/bar", "baz2").with_param(&[0_u8; 128][..]),
         ] {
             let frame = msg.to_frame().unwrap();
             debug!("frame: {}", &frame);
@@ -292,7 +292,7 @@ mod test {
     #[apply(test!)]
     async fn test_read_big_frame_more_chunks() {
         init_log();
-        let msg = RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 129][..]).into()));
+        let msg = RpcMessage::new_request("foo/bar", "baz").with_param(&[0_u8; 129][..]);
         // 0000 80 9e 01 8b 41 41 48 42 49 86 07 66 6f 6f 2f 62 ....AAHBI..foo/b
         // 0010 61 72 4a 86 03 62 61 7a ff 8a 41 85 80 80 00 00 arJ..baz..A.....
         // 0020 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ................

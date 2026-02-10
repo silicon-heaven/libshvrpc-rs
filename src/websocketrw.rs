@@ -182,9 +182,9 @@ mod test {
     async fn test_write_frame() {
         init_log();
         for msg in [
-            RpcMessage::new_request("foo/bar", "baz", Some("hello".into())),
-            RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 128][..]).into())),
-            RpcMessage::new_request("foo/bar", "baz", Some((&[0_u8; 5000][..]).into())),
+            RpcMessage::new_request("foo/bar", "baz").with_param("hello"),
+            RpcMessage::new_request("foo/bar", "baz").with_param(&[0_u8; 128][..]),
+            RpcMessage::new_request("foo/bar", "baz").with_param(&[0_u8; 5000][..]),
         ] {
             let frame = msg.to_frame().unwrap();
             let buff = frame_to_data(&frame).await;
@@ -204,7 +204,7 @@ mod test {
     #[apply(test!)]
     async fn test_ignore_non_binary_mesage() {
         init_log();
-        let msg = RpcMessage::new_request("foo/bar", "baz", Some("hello".into()));
+        let msg = RpcMessage::new_request("foo/bar", "baz").with_param("hello");
         let frame = msg.to_frame().unwrap();
         let buff = frame_to_data(&frame).await;
         debug!("msg: {msg}");
