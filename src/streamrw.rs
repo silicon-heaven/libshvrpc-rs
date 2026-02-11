@@ -320,7 +320,7 @@ mod test {
                 data[1..2].to_vec(),
                 data[2..meta_start].to_vec(),
                 data[meta_start..meta_end].to_vec(),
-                data[meta_end..data1_len + 1].to_vec(),
+                data[meta_end..=data1_len].to_vec(),
                 data[data1_len + 1..].to_vec(),
             ],
         ] {
