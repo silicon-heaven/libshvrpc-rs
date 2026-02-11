@@ -176,7 +176,7 @@ impl TryFrom<&RpcValue> for MethodInfo {
             shvproto::Value::IMap(imap) => {
                 let get_key = |key: DirAttribute| {
                     imap.get(&i32::from(key)).ok_or_else(||
-                        format!("Missing MethodInfo key `{}`({}) in IMap", i32::from(key), <&str>::from(key)).to_string()
+                        format!("Missing MethodInfo key `{}`({}) in IMap", i32::from(key), <&str>::from(key))
                     )
                 };
                 let format_err = |field: DirAttribute, err: &String| {
