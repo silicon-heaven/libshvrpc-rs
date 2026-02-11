@@ -568,7 +568,7 @@ where
             }
         };
 
-        let mut bytes = [protocol].into_iter().chain(meta).chain(data.iter().copied());
+        let mut bytes = std::iter::once(protocol).chain(meta).chain(data.iter().copied());
 
         // Send the first frame and wait for the ACK
         let frame_payload = bytes.by_ref().take(MAX_PAYLOAD_SIZE).collect::<Vec<_>>();

@@ -326,7 +326,7 @@ mod test {
             access_level: AccessLevel::Read,
             param: "param".to_string(),
             result: "result".to_string(),
-            signals: [("sig".to_string(), Some("String".to_string()))].into_iter().collect(),
+            signals: std::iter::once(("sig".to_string(), Some("String".to_string()))).collect(),
         }
     }
 
@@ -418,7 +418,7 @@ mod test {
         assert_eq!(RpcValue::from(true).try_into(), Ok(DirResult::Exists(true)));
         assert_eq!(RpcValue::from(false).try_into(), Ok(DirResult::Exists(false)));
 
-        let rv: RpcValue = [
+        let rv: RpcValue = vec![
             shvproto::make_map!(
                 "name" => "method",
                 "flags" => Flags::IsGetter,
@@ -427,10 +427,7 @@ mod test {
                 "result" => "result",
                 "signals" => shvproto::make_map!("sig" => Some("String")),
             )
-        ]
-        .into_iter()
-        .collect::<Vec<_>>()
-        .into();
-        assert_eq!(rv.try_into(), Ok(DirResult::List([method_info()].into_iter().collect())));
+        ].into();
+        assert_eq!(rv.try_into(), Ok(DirResult::List(std::iter::once(method_info()).collect())));
     }
 }
