@@ -239,14 +239,13 @@ pub(crate) fn journal_entry_to_rpclist(
 ) -> shvproto::List {
     let path_value: RpcValue = if let Some(cache) = path_cache {
         // If path already present, use the existing index; otherwise insert new one.
-        let idx = match cache.get(&entry.path) {
-            Some(&idx) => idx,
+        let idx = if let Some(idx) = cache.get(&entry.path) {
+            *idx
+        } else {
             #[expect(clippy::cast_possible_wrap, clippy::cast_possible_truncation, reason = "We don't mind truncation")]
-            None => {
-                let new_idx = cache.len() as i32;
-                cache.insert(entry.path.clone(), new_idx);
-                new_idx
-            }
+            let new_idx = cache.len() as i32;
+            cache.insert(entry.path.clone(), new_idx);
+            new_idx
         };
         idx.into()
     } else {
