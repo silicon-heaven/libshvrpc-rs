@@ -183,7 +183,7 @@ fn rpcvalue_to_journal_entry(entry: &RpcValue, paths_dict: &BTreeMap<i32, String
             .ok_or_else(|| format!("Wrong path reference {idx} of journal entry: {}", entry.to_cpon()))?,
         shvproto::Value::String(path) => path,
         _ => return make_err(&format!("Wrong path `{}` of journal entry", path.to_cpon())),
-    }.to_string();
+    }.clone();
 
     let value = row.next().unwrap_or_default();
 
