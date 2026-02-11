@@ -116,7 +116,7 @@ impl RpcFrame {
                 let mut rd = ChainPackReader::new(&mut buff);
                 rd.read_value()?
             }
-            _ => {
+            Protocol::ResetSession => {
                 return Err("Invalid protocol".into());
             }
         };

@@ -84,13 +84,13 @@ impl<'a> Response<'a> {
     pub fn success(&self) -> Option<&'a RpcValue> {
         match self {
             Response::Success(rpc_value) => Some(rpc_value),
-            _ => None,
+            Response::Delay(_) => None,
         }
     }
     pub fn delay(&self) -> Option<f64> {
         match self {
             Response::Delay(progress) => Some(*progress),
-            _ => None,
+            Response::Success(_) => None,
         }
     }
 }
