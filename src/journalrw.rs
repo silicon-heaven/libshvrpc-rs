@@ -237,20 +237,17 @@ pub(crate) fn journal_entry_to_rpclist(
     entry: &JournalEntry,
     path_cache: Option<&mut BTreeMap<String, i32>>,
 ) -> shvproto::List {
-    let path_value: RpcValue = if let Some(cache) = path_cache {
+    let path_value: RpcValue = path_cache.map_or_else(|| entry.path.clone().into(), |cache| {
         // If path already present, use the existing index; otherwise insert new one.
-        let idx = if let Some(idx) = cache.get(&entry.path) {
-            *idx
-        } else {
-            #[expect(clippy::cast_possible_wrap, clippy::cast_possible_truncation, reason = "We don't mind truncation")]
-            let new_idx = cache.len() as i32;
-            cache.insert(entry.path.clone(), new_idx);
-            new_idx
-        };
-        idx.into()
-    } else {
-        entry.path.clone().into()
-    };
+        if let Some(&idx) = cache.get(&entry.path) {
+            return idx.into();
+        }
+
+        #[expect(clippy::cast_possible_wrap, clippy::cast_possible_truncation, reason ="we hope we don't have too many paths")]
+        let new_idx = cache.len() as i32;
+        cache.insert(entry.path.clone(), new_idx);
+        new_idx.into()
+    });
 
     let mut value_flags = ValueFlags::empty();
     if !entry.repeat {

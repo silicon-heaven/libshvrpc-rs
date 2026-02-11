@@ -66,21 +66,12 @@ impl ShvRI {
         &self.ri[0..self.method_sep_ix]
     }
     pub fn method(&self) -> &str {
-        if let Some(ix) = self.signal_sep_ix {
-            #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
-            &self.ri[self.method_sep_ix + 1..ix]
-        } else {
-            #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
-            &self.ri[self.method_sep_ix + 1..]
-        }
+        #[expect(clippy::string_slice, reason = "We expect ASCII strings")]
+        self.signal_sep_ix.map_or_else(|| &self.ri[self.method_sep_ix + 1..], |ix| &self.ri[self.method_sep_ix + 1..ix])
     }
     pub fn signal(&self) -> Option<&str> {
-        if let Some(ix) = self.signal_sep_ix {
-            #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
-            Some(&self.ri[ix + 1..])
-        } else {
-            None
-        }
+        #[expect(clippy::string_slice, reason = "We expect ASCII strings")]
+        self.signal_sep_ix.map(|ix| &self.ri[ix + 1..])
     }
     pub fn has_signal(&self) -> bool {
         self.signal_sep_ix.is_some()
@@ -109,12 +100,10 @@ impl ShvRI {
         &self.ri
     }
     pub fn from_path_method_signal(path: &str, method: &str, signal: Option<&str>) -> Result<Self, String> {
-        let ri = if let Some(signal) = signal {
+        let ri = signal.map_or_else(|| format!("{path}:{method}"), |signal| {
             let method = if method.is_empty() { "*" } else { method };
             format!("{path}:{method}:{signal}")
-        } else {
-            format!("{path}:{method}")
-        };
+        });
         Ok(Self::try_from(ri)?)
     }
 }

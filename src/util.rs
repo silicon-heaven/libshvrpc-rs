@@ -64,23 +64,15 @@ pub fn starts_with_path(shv_path: impl AsRef<str>, with_path: impl AsRef<str>) -
 /// 3. remove prefix, if any
 /// 4. join rest with '/'
 pub fn strip_prefix_path<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
-    if let Some(strip) = path.strip_prefix(prefix) {
-        if strip.is_empty() {
+    let strip = path.strip_prefix(prefix)?;
+    if strip.is_empty() {
+        Some(strip)
+    } else {
+        strip.strip_prefix('/').or(if prefix.is_empty() {
             Some(strip)
         } else {
-            match strip.strip_prefix('/') {
-                None => {
-                    if prefix.is_empty() {
-                        Some(strip)
-                    } else {
-                        None
-                    }
-                }
-                Some(strip) => { Some(strip) }
-            }
-        }
-    } else {
-        None
+            None
+        })
     }
 }
 
@@ -132,12 +124,7 @@ pub fn split_glob_on_match<'a>(glob_pattern: &'a str, shv_path: &str) -> Result<
     // find first '**' occurrence in paths
     let globstar_pos = glob_pattern.find("**");
     #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
-    let pattern1 = match globstar_pos {
-        None => { glob_pattern }
-        Some(ix) => {
-            if ix == 0 { "" } else { &glob_pattern[0 .. (ix - 1)] }
-        }
-    };
+    let pattern1 = globstar_pos.map_or(glob_pattern, |ix| if ix == 0 { "" } else { &glob_pattern[0 .. (ix - 1)] });
     if globstar_pos.is_some() && pattern1.is_empty() {
         // paths starts with **, this matches everything
         return Ok(Some(("**", glob_pattern)))
@@ -151,34 +138,24 @@ pub fn split_glob_on_match<'a>(glob_pattern: &'a str, shv_path: &str) -> Result<
     let trimmed_path = left_glob(shv_path, match_len).unwrap();
     let pattern = Pattern::new(trimmed_pattern1).map_err(|err| err.to_string())?;
     if pattern.matches(trimmed_path) {
-        match globstar_pos {
-            None => {
-                #[expect(clippy::comparison_chain, reason = "We don't probably want to use `cmp()` and match, as it might be slower: https://rust-lang.github.io/rust-clippy/master/index.html#/comparison_chain")]
-                if shv_path_glen > pattern1_glen {
-                    // a/b vs a/b/c
-                    Ok(None)
-                } else if shv_path_glen == pattern1_glen {
-                    // a/b/c vs a/b/c
-                    Ok(Some((trimmed_pattern1, "")))
-                } else {
-                    // a/b/c vs a/b
-                    #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
-                    Ok(Some((trimmed_pattern1, &glob_pattern[(trimmed_pattern1.len()+1) .. ])))
-                }
-            }
-            Some(ix) => {
-                if shv_path_glen > pattern1_glen {
-                    // a/b/** vs a/b/c
-                    #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
-                    Ok(Some((&glob_pattern[0 .. (ix+2)], &glob_pattern[ix ..])))
-                } else {
-                    // a/b/c/** vs a/b/c
-                    // a/b/c/d/** vs a/b/c
-                    #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
-                    Ok(Some((trimmed_pattern1, &glob_pattern[trimmed_pattern1.len()+1 ..])))
-                }
-            }
-        }
+        globstar_pos.map_or_else(|| match shv_path_glen.cmp(&pattern1_glen) {
+            // a/b vs a/b/c
+            std::cmp::Ordering::Greater => Ok(None),
+            // a/b/c vs a/b/c
+            std::cmp::Ordering::Equal => Ok(Some((trimmed_pattern1, ""))),
+            // a/b/c vs a/b
+            #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
+            std::cmp::Ordering::Less => Ok(Some((trimmed_pattern1, &glob_pattern[(trimmed_pattern1.len()+1) .. ]))),
+        }, |ix| if shv_path_glen > pattern1_glen {
+            // a/b/** vs a/b/c
+            #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
+            Ok(Some((&glob_pattern[0 .. (ix+2)], &glob_pattern[ix ..])))
+        } else {
+            // a/b/c/** vs a/b/c
+            // a/b/c/d/** vs a/b/c
+            #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
+            Ok(Some((trimmed_pattern1, &glob_pattern[trimmed_pattern1.len()+1 ..])))
+        })
     } else {
         Ok(None)
     }
