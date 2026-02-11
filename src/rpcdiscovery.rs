@@ -161,15 +161,13 @@ impl TryFrom<&RpcValue> for MethodInfo {
                             .try_into()
                             .map_err(|e| format_err(DirAttribute::Signals, &e))?;
                         let mut res: BTreeMap<String, Option<String>> = BTreeMap::new();
-                        for (key, val) in signals_map.into_iter() {
-                            res.insert(
-                                key.to_owned(),
-                                match &val.value {
-                                    shvproto::Value::Null => Ok(None),
-                                    shvproto::Value::String(val) => Ok(Some(val.to_string())),
-                                    _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
-                                }?
-                            );
+                        for (key, val) in signals_map {
+                            let value = match &val.value {
+                                shvproto::Value::Null => Ok(None),
+                                shvproto::Value::String(val) => Ok(Some(val.to_string())),
+                                _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
+                            }?;
+                            res.insert(key, value);
                         }
                         res
                     },
@@ -208,15 +206,13 @@ impl TryFrom<&RpcValue> for MethodInfo {
                             .try_into()
                             .map_err(|e| format_err(DirAttribute::Signals, &e))?;
                         let mut res: BTreeMap<String, Option<String>> = BTreeMap::new();
-                        for (key, val) in signals_map.into_iter() {
-                            res.insert(
-                                key.to_owned(),
-                                match &val.value {
-                                    shvproto::Value::Null => Ok(None),
-                                    shvproto::Value::String(val) => Ok(Some(val.to_string())),
-                                    _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
-                                }?
-                            );
+                        for (key, val) in signals_map {
+                            let value = match &val.value {
+                                shvproto::Value::Null => Ok(None),
+                                shvproto::Value::String(val) => Ok(Some(val.to_string())),
+                                _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
+                            }?;
+                            res.insert(key, value);
                         }
                         res
                     },
