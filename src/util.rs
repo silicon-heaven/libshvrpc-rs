@@ -210,7 +210,7 @@ impl<V> StringMapView<V> for BTreeMap<String, V> {
     }
 }
 
-impl<V> StringMapView<V> for HashMap<String, V> {
+impl<V, S: std::hash::BuildHasher> StringMapView<V> for HashMap<String, V, S> {
     fn contains_key_(&self, key: &str) -> bool {
         self.contains_key(key)
     }
