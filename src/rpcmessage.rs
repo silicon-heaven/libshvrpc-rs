@@ -151,7 +151,7 @@ impl RpcMessage {
     pub fn response(&self) -> Result<Response<'_>, RpcError> {
         if let Some(err) = self.ival(Key::Error as i32) {
             return Err(RpcError::from_rpcvalue(err)
-                .unwrap_or(RpcError {
+                .unwrap_or_else(|| RpcError {
                     code: USER_ERROR_CODE_DEFAULT.into(),
                     message: "Cannot parse 'error' key found in RPC response.".to_string(),
                 }));

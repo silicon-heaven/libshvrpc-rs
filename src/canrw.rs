@@ -196,7 +196,7 @@ impl TryFrom<&DataFrame> for CanFdFrame {
             device_addr: frame.header.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvCanParseError::InvalidCanId(u32::from(id)))?;
+            .ok_or_else(|| ShvCanParseError::InvalidCanId(u32::from(id)))?;
         let data = [&[frame.header.dst, frame.counter], frame.payload.as_slice()].concat();
         CanFdFrame::with_flags(can_id, &data, FdFlags::BRS | FdFlags::FDF)
             .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build a Data frame".into()))
@@ -236,7 +236,7 @@ impl TryFrom<&AckFrame> for CanFdFrame {
             device_addr: frame.header.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvCanParseError::InvalidCanId(u32::from(id)))?;
+            .ok_or_else(|| ShvCanParseError::InvalidCanId(u32::from(id)))?;
         let data = &[frame.header.dst, frame.counter];
         CanFdFrame::with_flags(can_id, data, FdFlags::BRS | FdFlags::FDF)
             .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build an ACK frame".into()))
@@ -268,7 +268,7 @@ impl TryFrom<&TerminateFrame> for CanFdFrame {
             device_addr: frame.header.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvCanParseError::InvalidCanId(u32::from(id)))?;
+            .ok_or_else(|| ShvCanParseError::InvalidCanId(u32::from(id)))?;
         let data = &[frame.header.dst];
         CanFdFrame::with_flags(can_id, data, FdFlags::BRS | FdFlags::FDF)
             .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build a Terminate frame".into()))
@@ -300,7 +300,7 @@ impl TryFrom<RemoteFrame> for CanRemoteFrame {
             device_addr: frame.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvCanParseError::InvalidCanId(u32::from(id)))?;
+            .ok_or_else(|| ShvCanParseError::InvalidCanId(u32::from(id)))?;
         CanRemoteFrame::new_remote(can_id, u8::from(frame.kind) as usize)
             .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build an RTR frame".into()))
     }

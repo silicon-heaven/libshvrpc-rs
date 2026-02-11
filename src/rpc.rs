@@ -156,13 +156,13 @@ impl SubscriptionParam {
             let m = value.as_map();
             let paths = m
                 .get("paths")
-                .unwrap_or(m.get("path").unwrap_or_default())
+                .unwrap_or_else(|| m.get("path").unwrap_or_default())
                 .as_str();
             let source = m.get("source").unwrap_or_default().as_str();
             let signal = m
                 .get("signal")
-                .or(m.get("methods"))
-                .or(m.get("method"))
+                .or_else(|| m.get("methods"))
+                .or_else(|| m.get("method"))
                 .map(RpcValue::as_str);
             if paths.is_empty() && source.is_empty() && signal.is_none() {
                 Err("Empty map".into())
