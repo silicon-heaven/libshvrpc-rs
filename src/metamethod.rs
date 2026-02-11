@@ -76,8 +76,7 @@ pub enum AccessLevel {
 }
 
 impl AccessLevel {
-    // It makes sense to return Option rather than Result as the `FromStr` trait does.
-    #[allow(clippy::should_implement_trait)]
+    #[expect(clippy::should_implement_trait, reason ="It makes sense to return Option rather than Result as the `FromStr` trait does.")]
     pub fn from_str(value: &str) -> Option<Self> {
         match value {
             "bws" => Some(AccessLevel::Browse),

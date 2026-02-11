@@ -149,9 +149,7 @@ pub fn split_glob_on_match<'a>(glob_pattern: &'a str, shv_path: &str) -> Result<
     if pattern.matches(trimmed_path) {
         match globstar_pos {
             None => {
-                // We don't probably want to use `cmp()` and match, as it might be slower:
-                // https://rust-lang.github.io/rust-clippy/master/index.html#/comparison_chain
-                #[allow(clippy::comparison_chain)]
+                #[expect(clippy::comparison_chain, reason = "We don't probably want to use `cmp()` and match, as it might be slower: https://rust-lang.github.io/rust-clippy/master/index.html#/comparison_chain")]
                 if shv_path_glen > pattern1_glen {
                     // a/b vs a/b/c
                     Ok(None)
