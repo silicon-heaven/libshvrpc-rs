@@ -75,7 +75,7 @@ impl RpcFrame {
             return Ok(RpcFrame::new_reset_session())
         }
         if *proto != Protocol::ChainPack as u8 {
-            return Err(anyhow!("Invalid protocol type received {:#02x}.", proto));
+            return Err(anyhow!("Invalid protocol type received {proto:#02x}."));
         }
         let (meta, meta_len) = {
             let mut buffrd = BufReader::new(rest);
@@ -89,7 +89,7 @@ impl RpcFrame {
                     }
                 }
                 Err(e) => {
-                    return Err(anyhow!("Frame meta parse error: {}.", e));
+                    return Err(anyhow!("Frame meta parse error: {e}."));
                 }
             }
         };
