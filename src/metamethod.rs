@@ -92,7 +92,7 @@ impl AccessLevel {
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             AccessLevel::Browse => "bws",
             AccessLevel::Read => "rd",
