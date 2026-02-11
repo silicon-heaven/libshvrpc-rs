@@ -379,6 +379,7 @@ mod tests {
 
     #[test]
     fn ls_mounts() {
+        #[expect(clippy::zero_sized_map_values, reason = "Fine for tests, and it can't be a Set")]
         let mut mounts = BTreeMap::new();
         mounts.insert(".broker".into(), ());
         mounts.insert(".broker/client/1".into(), ());
