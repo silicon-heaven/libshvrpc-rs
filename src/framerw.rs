@@ -71,7 +71,7 @@ impl RawData {
         }
     }
     pub(crate) fn bytes_available(&self) -> usize {
-        assert!(self.length >= self.consumed);
+        assert!(self.length >= self.consumed, "Length must be more than consumed");
         self.length - self.consumed
     }
     pub(crate) fn is_empty(&self) -> bool {

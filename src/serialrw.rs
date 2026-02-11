@@ -67,8 +67,8 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     }
     fn unget_stx(&mut self) {
         self.raw_data.consumed -= 1;
-        assert!(self.raw_data.data.len() > self.raw_data.consumed);
-        assert_eq!(self.raw_data.data.get(self.raw_data.consumed), Some(&STX));
+        assert!(self.raw_data.data.len() > self.raw_data.consumed, "Length must be more than consumed");
+        assert_eq!(self.raw_data.data.get(self.raw_data.consumed), Some(&STX), "Last byte must be STX");
     }
     fn unescape_byte(b: u8) -> Result<u8, ReceiveFrameError> {
         let b = match b {

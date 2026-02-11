@@ -47,7 +47,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         let n = min(count, self.raw_data.bytes_available());
         let data = self.raw_data.data.get(self.raw_data.consumed..self.raw_data.consumed + n).expect("We should have enough data");
         self.raw_data.consumed += n;
-        assert!(self.raw_data.consumed <= self.raw_data.length);
+        assert!(self.raw_data.consumed <= self.raw_data.length, "Length must be more than consumed");
         Ok(data)
     }
     async fn get_raw_byte(&mut self) -> Result<u8, ReceiveFrameError> {
@@ -83,8 +83,8 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         let mut data = Vec::with_capacity(bytes_to_read);
         while bytes_to_read > 0 {
             let bytes = self.get_raw_bytes(bytes_to_read).await.map_err(|err| attach_meta_to_timeout_error(err, &data))?;
-            assert!(!bytes.is_empty()); // get_raw_bytes() never returns 0
-            assert!(bytes.len() <= bytes_to_read);
+            assert!(!bytes.is_empty(), "get_raw_bytes() never returns 0");
+            assert!(bytes.len() <= bytes_to_read, "We can't get more bytes than bytes_to_read");
             let first_chunk = data.is_empty();
             if first_chunk {
                 let protocol = bytes.get(0).expect("Bytes is not empty because get_raw_bytes never returns an empty slice");
