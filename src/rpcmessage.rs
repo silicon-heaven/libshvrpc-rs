@@ -227,6 +227,7 @@ impl RpcMessage {
         None
     }
     fn set_ival(&mut self, key: Key, rv: Option<impl Into<RpcValue>>) -> &mut Self {
+        #[expect(clippy::panic, reason = "It's more of a logic error, but it's alright for now")]
         if let Value::IMap(m) = &mut self.0.value {
             match rv {
                 Some(rv) => m.insert(key as i32, rv.into()),
