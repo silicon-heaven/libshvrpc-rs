@@ -52,7 +52,7 @@ impl Default for LoginParams {
             login_type: LoginType::Sha1,
             device_id: "".to_string(),
             mount_point: "".to_string(),
-            heartbeat_interval: Duration::from_secs(60),
+            heartbeat_interval: Duration::from_mins(1),
             user_agent: "".to_string(),
         }
     }
@@ -160,7 +160,7 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
 }
 
 
-fn default_heartbeat() -> Duration { Duration::from_secs(60) }
+fn default_heartbeat() -> Duration { Duration::from_mins(1) }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -269,7 +269,7 @@ reconnect_interval: 3s
             url: Url::parse("tcp:://user@localhost:3755?password=secret").unwrap(),
             device_id: None,
             mount: None,
-            heartbeat_interval: Duration::from_secs(60),
+            heartbeat_interval: Duration::from_mins(1),
             reconnect_interval: Some(Duration::from_secs(3)),
         };
 
