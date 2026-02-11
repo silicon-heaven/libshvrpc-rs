@@ -121,9 +121,8 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
         let rq = RpcMessage::new_request("", "hello");
         let hello_rq_id = rq.request_id();
         frame_writer.send_message(rq).await?;
-        let resp = match get_response(hello_rq_id, frame_reader).await? {
-            None => continue 'session_loop,
-            Some(resp) => resp,
+        let Some(resp) = get_response(hello_rq_id, frame_reader).await? else {
+            continue 'session_loop
         };
         let Ok(Response::Success(result)) = resp.response() else {
             return Err(resp.error().expect("An error message received").to_rpcvalue().to_cpon().into());
@@ -143,9 +142,8 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
         debug!("\t send login");
         frame_writer.send_message(rq).await?;
 
-        let resp = match get_response(login_rq_id, frame_reader).await? {
-            None => continue 'session_loop,
-            Some(resp) => resp,
+        let Some(resp) = get_response(login_rq_id, frame_reader).await? else {
+            continue 'session_loop
         };
 
         debug!("\t login response result: {:?}", resp.response());
