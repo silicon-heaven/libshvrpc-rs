@@ -262,11 +262,16 @@ pub fn find_longest_path_prefix<'a, V>(
 mod tests {
     use std::collections::BTreeMap;
 
+    use log::error;
+
     use crate::util::{glob_len, left_glob, split_glob_on_match, starts_with_path, strip_prefix_path};
     fn init_log() {
-        let _ = env_logger::builder()
+        env_logger::builder()
             // .filter(None, LevelFilter::Debug)
-            .is_test(true).try_init();
+            .is_test(true)
+            .try_init()
+            .inspect_err(|err| error!("Logger didn't work: {err}"))
+            .ok();
     }
 
     #[test]

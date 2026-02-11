@@ -320,6 +320,7 @@ mod test {
     use super::*;
     use crate::framerw::test::from_hex;
     use crate::RpcMessage;
+    use log::{debug, error};
     use macro_rules_attribute::apply;
     use smol_macros::test;
     use smol::io::BufWriter;
@@ -328,10 +329,12 @@ mod test {
     use crate::util::hex_string;
 
     fn init_log() {
-        let _ = env_logger::builder()
+        env_logger::builder()
             // .filter(None, LevelFilter::Debug)
             .is_test(true)
-            .try_init();
+            .try_init()
+            .inspect_err(|err| error!("Logger didn't work: {err}"))
+            .ok();
     }
 
     #[apply(test!)]

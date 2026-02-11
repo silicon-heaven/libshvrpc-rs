@@ -130,6 +130,7 @@ impl<W: Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin + Send> F
 
 #[cfg(test)]
 mod test {
+    use log::{LevelFilter, debug, error};
     use shvproto::util::{hex_array, hex_dump};
     use super::*;
     use crate::RpcMessage;
@@ -162,10 +163,12 @@ mod test {
     }
 
     fn init_log() {
-        let _ = env_logger::builder()
+        env_logger::builder()
             .filter(None, LevelFilter::Debug)
             .is_test(true)
-            .try_init();
+            .try_init()
+            .inspect_err(|err| error!("Logger didn't work: {err}"))
+            .ok();
     }
 
     async fn frame_to_data(frame: &RpcFrame) -> Vec<u8> {

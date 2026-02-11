@@ -168,6 +168,7 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
 #[cfg(test)]
 mod test {
     use log::debug;
+    use log::error;
     use shvproto::util::{hex_dump};
     use super::*;
     use crate::framerw::test::from_hex;
@@ -179,10 +180,12 @@ mod test {
     use smol_macros::test;
 
     fn init_log() {
-        let _ = env_logger::builder()
+        env_logger::builder()
             //.filter(None, LevelFilter::Debug)
             .is_test(true)
-            .try_init();
+            .try_init()
+            .inspect_err(|err| error!("Logger didn't work: {err}"))
+            .ok();
     }
     async fn send_frame_to_vector(frame: &RpcFrame) -> Vec<u8> {
         let mut buff: Vec<u8> = vec![];
