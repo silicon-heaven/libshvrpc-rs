@@ -575,7 +575,7 @@ impl TryFrom<shvproto::MetaMap> for Log2Header {
                 .collect::<Result<BTreeMap<_, _>,_>>()
                 .map_err(|e| format!("Corrupted paths dictionary: {e}"))?,
             Some(v) => return Err(format!("Invalid `pathsDict` type: {}", v.type_name())),
-            None => Default::default(),
+            None => BTreeMap::default(),
         };
         let log_params = match meta.get("logParams") {
             Some(val) => GetLog2Params::try_from(val)?,

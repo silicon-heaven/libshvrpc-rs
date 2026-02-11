@@ -228,9 +228,9 @@ impl TryFrom<&RpcValue> for MethodInfo {
                     name: method_name.to_string(),
                     flags: Flags::empty(),
                     access_level: AccessLevel::Read,
-                    param: Default::default(),
-                    result: Default::default(),
-                    signals: Default::default(),
+                    param: String::default(),
+                    result: String::default(),
+                    signals: BTreeMap::default(),
                 })
             }
             _ => Err(format!("Wrong RpcValue type for MethodInfo: {}", value.type_name())),

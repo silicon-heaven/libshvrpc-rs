@@ -184,7 +184,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
     }
     #[cfg(test)]
     async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
-        let mut data: Vec<u8> = Default::default();
+        let mut data = Vec::default();
         while let Ok(b) = self.get_raw_byte(false).await.map_err(|e| attach_meta_to_timeout_error(e, &data)) {
             let b = match b {
                 ESC => Self::unescape_byte(self.get_raw_byte(false).await.map_err(|e| attach_meta_to_timeout_error(e, &data))?)?,

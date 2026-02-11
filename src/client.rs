@@ -224,7 +224,7 @@ impl ClientConfig {
         } else if !create_if_not_exist {
             return Err(format!("Cannot find config file: {file_name}").into())
         }
-        let config = Default::default();
+        let config = ClientConfig::default();
         if create_if_not_exist {
             if let Some(config_dir) = file_path.parent() {
                 fs::create_dir_all(config_dir)?;

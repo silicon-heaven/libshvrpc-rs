@@ -60,7 +60,7 @@ impl From<RpcValue> for DataChange {
                 value,
                 date_time: None,
                 short_time: None,
-                value_flags: Default::default(),
+                value_flags: ValueFlags::default(),
             }
         }
 
