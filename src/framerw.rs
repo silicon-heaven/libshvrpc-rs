@@ -18,10 +18,12 @@ pub enum ReceiveFrameError {
 }
 
 pub fn try_chainpack_buf_to_meta(buf: &[u8]) -> Option<shvproto::MetaMap> {
-    if buf.first().is_none_or(|first_byte| *first_byte != crate::rpcframe::Protocol::ChainPack as u8) {
+    const PROTOCOL_CHAINPACK: u8 = crate::rpcframe::Protocol::ChainPack as _;
+    let [PROTOCOL_CHAINPACK, rest @ ..] = buf else {
         return None
-    }
-    let mut buffrd = std::io::BufReader::new(&buf[1..]);
+    };
+
+    let mut buffrd = std::io::BufReader::new(rest);
     let mut rd = shvproto::ChainPackReader::new(&mut buffrd);
     rd.try_read_meta().ok().flatten()
 }
@@ -208,7 +210,7 @@ fn log_data(data: &[u8], prompt: &str) {
         "".into()
     };
     let log_length = log_length_threshold.min(data.len());
-    log!(target: "RpcData", Level::Debug, "{prompt}{trimmed_at} -------------------------\n{}", hex_dump(&data[0 .. log_length]));
+    log!(target: "RpcData", Level::Debug, "{prompt}{trimmed_at} -------------------------\n{}", hex_dump(data.get(0 .. log_length).expect("Data out of range")));
 }
 
 #[cfg(test)]

@@ -196,10 +196,10 @@ pub fn children_on_path<V>(mounts: &BTreeMap<String, V>, path: &str) -> Option<V
     let mut dir_exists = mounts.contains_key(path);
     for (key, _) in mounts.range(path.to_owned()..) {
         if key.starts_with(path) {
-            if path.is_empty() || (key.len() > path.len() && key.as_bytes()[path.len()] == (b'/')) {
+            if path.is_empty() || (key.len() > path.len() && *key.as_bytes().get(path.len()).expect("We check the len") == (b'/')) {
                 dir_exists = true;
                 let dir_rest_start = if path.is_empty() { 0 } else { path.len() + 1 };
-                let mut updirs = key[dir_rest_start..].split('/');
+                let mut updirs = key.get(dir_rest_start..).expect("We check the bounds").split('/');
                 if let Some(dir) = updirs.next()
                     && !dir.is_empty() && !unique_dirs.contains(dir) {
                         dirs.push(dir.to_string());

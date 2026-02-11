@@ -58,14 +58,14 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         if self.raw_data.bytes_available() == 0 {
             read_raw_data(&mut self.reader, &mut self.raw_data, with_timeout).await?;
         }
-        let b = self.raw_data.data[self.raw_data.consumed];
+        let b = *self.raw_data.data.get(self.raw_data.consumed).expect("Byte must be available");
         self.raw_data.consumed += 1;
         Ok(b)
     }
     fn unget_stx(&mut self) {
         self.raw_data.consumed -= 1;
         assert!(self.raw_data.data.len() > self.raw_data.consumed);
-        assert_eq!(self.raw_data.data[self.raw_data.consumed], STX);
+        assert_eq!(self.raw_data.data.get(self.raw_data.consumed), Some(&STX));
     }
     fn unescape_byte(b: u8) -> Result<u8, ReceiveFrameError> {
         let b = match b {

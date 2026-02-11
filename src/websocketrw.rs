@@ -62,7 +62,7 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                             ReceiveFrameError::FramingError(format!("Cannot parse size of a frame: {e}"))
                         )?;
                     let frame_start = rd.position();
-                    let frame = &bytes[frame_start..];
+                    let frame = bytes.get(frame_start..).expect("The reader can't be after our bytes");
                     if frame_size != frame.len() as u64 {
                         return Err(
                             ReceiveFrameError::FramingError(

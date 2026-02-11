@@ -55,31 +55,30 @@ impl RpcFrame {
         }
     }
     pub fn data(&self) -> &[u8] {
-        &self.raw_data[self.data_start..]
+        self.raw_data.get(self.data_start..).expect("Wrong data start")
     }
     pub fn is_error(&self) -> bool {
         let data = self.data();
-        if data.len() < 2 {
+        let &[first, second, ..] = data else {
             return false;
-        }
+        };
         const CHAINPACK_IMAP: u8 = shvproto::chainpack::PackingSchema::IMap as u8;
         const CHAINPACK_ERR_KEY: u8 = 0x40 + rpcmessage::Key::Error as u8;
-        data[0] == CHAINPACK_IMAP && data[1] == CHAINPACK_ERR_KEY
+        first == CHAINPACK_IMAP && second == CHAINPACK_ERR_KEY
 
     }
     pub fn from_raw_data(raw_data: Vec<u8>) -> Result<Self, anyhow::Error> {
-        if raw_data.is_empty() {
+        let [proto, rest @ ..] = raw_data.as_slice() else {
             return Err(anyhow!("Empty data cannot be converted to RpcFrame"));
-        }
-        let proto = raw_data[0];
-        if proto == Protocol::ResetSession as u8 {
+        };
+        if *proto == Protocol::ResetSession as u8 {
             return Ok(RpcFrame::new_reset_session())
         }
-        if proto != Protocol::ChainPack as u8 {
+        if *proto != Protocol::ChainPack as u8 {
             return Err(anyhow!("Invalid protocol type received {:#02x}.", proto));
         }
         let (meta, meta_len) = {
-            let mut buffrd = BufReader::new(&raw_data[1..]);
+            let mut buffrd = BufReader::new(rest);
             let mut rd = ChainPackReader::new(&mut buffrd);
             match rd.try_read_meta() {
                 Ok(m) => {

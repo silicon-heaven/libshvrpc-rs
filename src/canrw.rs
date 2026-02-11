@@ -327,24 +327,22 @@ impl TryFrom<&CanFdFrame> for ShvCanFrame {
         let src = shv_can_id.device_addr;
         let data = frame.data();
 
-        if data.is_empty() {
+        let &[dst, ref rest @ ..] = data else {
             return Err(ShvCanParseError::DataTooShort);
-        }
+        };
 
-        let dst = data[0];
         let header = DataFrameHeader {
             src,
             dst,
             first: shv_can_id.first_prio
         };
 
-        match data.len() {
-            1 => Ok(ShvCanFrame::Terminate(TerminateFrame { header })),
-            2 => Ok(ShvCanFrame::Ack(AckFrame { header, counter: data[1] })),
-            _ => {
-                let counter = data[1];
+        match *rest {
+            [] => Ok(ShvCanFrame::Terminate(TerminateFrame { header })),
+            [counter] => Ok(ShvCanFrame::Ack(AckFrame { header, counter })),
+            [counter, ref payload @ ..] => {
                 let is_last_frame = counter & 0x80 != 0;
-                let mut payload = data[2..].to_vec();
+                let mut payload = payload.to_vec();
                 // Trim zero bytes of last frames with DLC > 8
                 if is_last_frame && payload.len() > 8 {
                     trim_trailing_zeros(&mut payload);

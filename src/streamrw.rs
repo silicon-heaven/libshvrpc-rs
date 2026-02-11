@@ -43,14 +43,13 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
             read_raw_data(&mut self.reader, &mut self.raw_data, false).await?;
         }
         let n = min(count, self.raw_data.bytes_available());
-        let data = &self.raw_data.data[self.raw_data.consumed..self.raw_data.consumed + n];
+        let data = self.raw_data.data.get(self.raw_data.consumed..self.raw_data.consumed + n).expect("We should have enough data");
         self.raw_data.consumed += n;
         assert!(self.raw_data.consumed <= self.raw_data.length);
         Ok(data)
     }
     async fn get_raw_byte(&mut self) -> Result<u8, ReceiveFrameError> {
-        let data = self.get_raw_bytes(1).await?;
-        Ok(data[0])
+        Ok(*self.get_raw_bytes(1).await?.first().expect("asd"))
     }
     async fn get_frame_bytes_impl(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
         let mut lendata: Vec<u8> = vec![];
@@ -86,8 +85,8 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
             assert!(bytes.len() <= bytes_to_read);
             let first_chunk = data.is_empty();
             if first_chunk {
-                let protocol = bytes[0];
-                if protocol > Protocol::ChainPack as u8 {
+                let protocol = bytes.get(0).expect("Bytes is not empty because get_raw_bytes never returns an empty slice");
+                if *protocol > Protocol::ChainPack as u8 {
                     return Err(ReceiveFrameError::FramingError(format!("Invalid protocol type received: {protocol}")))
                 }
             }

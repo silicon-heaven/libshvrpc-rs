@@ -450,7 +450,7 @@ pub fn matches_path_pattern(path: impl AsRef<str>, pattern: impl AsRef<str>) -> 
                 path_ix += 1;
                 patt_ix += 1;
             }
-            Some(literal) if literal == path_parts[path_ix] => {
+            Some(literal) if literal == *path_parts.get(path_ix).expect("The bound is checked above") => {
                 path_ix += 1;
                 patt_ix += 1;
             }

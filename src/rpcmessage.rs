@@ -356,8 +356,8 @@ pub trait RpcMessageMetaTags {
         if ids.is_empty() {
             return self.set_tag(Tag::CallerIds as i32, None::<()>);
         }
-        if ids.len() == 1 {
-            return self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(ids[0] as PeerId)));
+        if let &[single_id] = ids {
+            return self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(single_id as PeerId)));
         }
         let lst: List = ids.iter().map(|v| RpcValue::from(*v)).collect();
         self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(lst)))
