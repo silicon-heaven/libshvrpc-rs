@@ -43,7 +43,7 @@ impl Glob {
         self.method.as_str()
     }
     pub fn signal_str(&self) -> Option<&str> {
-        self.signal.as_ref().map(|s| s.as_str())
+        self.signal.as_ref().map(Pattern::as_str)
     }
 }
 impl TryFrom<&str> for Glob {
@@ -168,7 +168,7 @@ impl SubscriptionParam {
                 .get("signal")
                 .or(m.get("methods"))
                 .or(m.get("method"))
-                .map(|v| v.as_str());
+                .map(RpcValue::as_str);
             if paths.is_empty() && source.is_empty() && signal.is_none() {
                 Err("Empty map".into())
             } else {
@@ -179,7 +179,7 @@ impl SubscriptionParam {
             }
         } else if value.is_list() {
             let lst = value.as_list();
-            let ri = lst.first().map(|v| v.as_str()).unwrap_or_default();
+            let ri = lst.first().map(RpcValue::as_str).unwrap_or_default();
             if ri.is_empty() {
                 Err("Empty SHV RI".into())
             } else {

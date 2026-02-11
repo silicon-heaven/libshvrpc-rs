@@ -65,9 +65,9 @@ impl From<RpcValue> for DataChange {
         }
 
         let date_time = meta_value(&value, DataChangeMetaTag::DateTime)
-            .and_then(|v| v.to_datetime());
+            .and_then(RpcValue::to_datetime);
         let short_time = meta_value(&value, DataChangeMetaTag::ShortTime)
-            .map(|v| v.as_i32());
+            .map(RpcValue::as_i32);
         let value_flags = meta_value(&value, DataChangeMetaTag::ValueFlags)
             .map(|v| ValueFlags::from_bits_retain(v.as_u64())).unwrap_or_default();
 

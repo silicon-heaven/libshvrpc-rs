@@ -295,7 +295,7 @@ pub trait RpcMessageMetaTags {
     }
 
     fn request_id(&self) -> Option<RqId> {
-        self.tag(Tag::RequestId as i32).map(|rv| rv.as_i64())
+        self.tag(Tag::RequestId as i32).map(RpcValue::as_i64)
     }
     fn try_request_id(&self) -> crate::Result<RqId> {
         self.request_id().ok_or_else(|| "Request id not exists.".into())

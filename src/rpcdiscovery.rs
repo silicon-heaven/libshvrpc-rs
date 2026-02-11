@@ -21,7 +21,7 @@ impl From<&RpcValue> for LsParam {
 
 impl From<Option<&RpcValue>> for LsParam {
     fn from(value: Option<&RpcValue>) -> Self {
-        value.map_or(LsParam::List, |rpcval| rpcval.into())
+        value.map_or(LsParam::List, Into::into)
     }
 }
 
@@ -101,7 +101,7 @@ impl From<&RpcValue> for DirParam {
 
 impl From<Option<&RpcValue>> for DirParam {
     fn from(value: Option<&RpcValue>) -> Self {
-        value.map_or(DirParam::Brief, |rpcval| rpcval.into())
+        value.map_or(DirParam::Brief, Into::into)
     }
 }
 
