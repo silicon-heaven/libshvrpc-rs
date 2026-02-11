@@ -473,7 +473,7 @@ where
                         .next()
                         .timeout(futures_time::time::Duration::from_secs(5))
                         .await
-                        .map_err(|_| ReceiveFrameError::Timeout(try_chainpack_buf_to_meta(&res)))
+                        .map_err(|_err| ReceiveFrameError::Timeout(try_chainpack_buf_to_meta(&res)))
                         .and_then(|opt| opt.ok_or_else(|| ReceiveFrameError::StreamError("Session terminated".into())))?;
 
                     // If the frame is a first frame, start over from sending the ACK, dropping the data fetched so far.
@@ -581,7 +581,7 @@ where
                 .frame_writer
                 .send(DataFrame::new(self.device_addr, self.peer_addr, frame_counter, true, &frame_payload))
                 .await
-                .map_err(|_| "Session terminated")?;
+                .map_err(|_err| "Session terminated")?;
 
             let ack_frame_or_timeout = self
                 .ack_reader
@@ -612,7 +612,7 @@ where
                 .frame_writer
                 .send(DataFrame::new(self.device_addr, self.peer_addr, to_frame_counter(frame_idx), false, &frame_payload))
                 .await
-                .map_err(|_| "Session terminated")?;
+                .map_err(|_err| "Session terminated")?;
         }
         Ok(())
     }
