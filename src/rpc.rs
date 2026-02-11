@@ -132,7 +132,7 @@ impl TryFrom<String> for ShvRI {
         };
         if ri.method().is_empty() {
             Err("Method must not be empty.")
-        } else if ri.signal().is_some() && ri.signal().unwrap().is_empty() {
+        } else if ri.signal().is_some_and(str::is_empty) {
             Err("Signal, if present, must not be empty.")
         }
          else {

@@ -134,8 +134,8 @@ pub fn split_glob_on_match<'a>(glob_pattern: &'a str, shv_path: &str) -> Result<
     let shv_path_glen = glob_len(shv_path);
     let pattern1_glen = glob_len(pattern1);
     let match_len = min(shv_path_glen, pattern1_glen);
-    let trimmed_pattern1 = left_glob(pattern1, match_len).unwrap();
-    let trimmed_path = left_glob(shv_path, match_len).unwrap();
+    let trimmed_pattern1 = left_glob(pattern1, match_len).expect("We check that the segment count matches");
+    let trimmed_path = left_glob(shv_path, match_len).expect("We check that the segment count matches");
     let pattern = Pattern::new(trimmed_pattern1).map_err(|err| err.to_string())?;
     if pattern.matches(trimmed_path) {
         globstar_pos.map_or_else(|| match shv_path_glen.cmp(&pattern1_glen) {
