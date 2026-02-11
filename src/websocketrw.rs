@@ -87,10 +87,7 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                 }
                 tungstenite::Message::Text(utf8_bytes) =>
                     warn!("Received unsupported Text message on a WebSocket: {utf8_bytes}"),
-                Message::Ping(_) => {}
-                Message::Pong(_) => {}
-                Message::Close(_) => {}
-                Message::Frame(_) => {}
+                Message::Ping(_) | Message::Pong(_) | Message::Close(_) | Message::Frame(_) => {}
             }
         }
     }
