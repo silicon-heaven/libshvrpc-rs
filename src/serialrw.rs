@@ -383,7 +383,7 @@ mod test {
             let mut crc_digest = CRC_32.digest();
             crc_digest.update(&reset_frame_data[1 .. 2]);
             let crc = crc_digest.finalize();
-            assert_eq!(crc, 0xd202ef8d);
+            assert_eq!(crc, 0xd202_ef8d);
             let frame = RpcFrame::new_reset_session();
             let mut buff: Vec<u8> = vec![];
             let buffwr = BufWriter::new(&mut buff);
