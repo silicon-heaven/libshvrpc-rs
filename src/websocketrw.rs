@@ -89,7 +89,7 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                 Message::Pong(_) => {}
                 Message::Close(_) => {}
                 Message::Frame(_) => {}
-            };
+            }
         }
     }
 }

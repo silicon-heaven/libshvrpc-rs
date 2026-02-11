@@ -430,7 +430,7 @@ where
 
                 if frame.header.first {
                     break frame;
-                };
+                }
             };
 
             'send_ack: loop {

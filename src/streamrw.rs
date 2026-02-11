@@ -72,7 +72,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                         ReadErrorReason::NumericValueOverflow => unreachable!("ChainPackReader::read_uint_data never returns NumericOverflow"),
                     }
                 }
-            };
+            }
         };
         if frame_len == 0 {
             return Err(ReceiveFrameError::FramingError("Frame length cannot be 0.".into()))

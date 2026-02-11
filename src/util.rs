@@ -129,8 +129,12 @@ pub fn split_glob_on_match<'a>(glob_pattern: &'a str, shv_path: &str) -> Result<
         // paths starts with **, this matches everything
         return Ok(Some(("**", glob_pattern)))
     }
-    if pattern1.is_empty() { return Err("Valid glob pattern cannot be empty".into()) };
-    if shv_path.is_empty() { return Err("Valid mount point cannot be empty".into()) };
+    if pattern1.is_empty() {
+        return Err("Valid glob pattern cannot be empty".into())
+    }
+    if shv_path.is_empty() {
+        return Err("Valid mount point cannot be empty".into())
+    }
     let shv_path_glen = glob_len(shv_path);
     let pattern1_glen = glob_len(pattern1);
     let match_len = min(shv_path_glen, pattern1_glen);

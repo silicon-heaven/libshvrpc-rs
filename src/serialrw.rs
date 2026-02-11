@@ -178,7 +178,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                     update_crc_digest(&mut crc_digest, b);
                     push_data_byte(b, &mut data)?;
                 }
-            };
+            }
         }
         Ok(data)
     }
@@ -271,7 +271,7 @@ impl<W: AsyncWrite + Unpin + Send> SerialFrameWriter<W> {
                 ATX => self.write_bytes(digest, &[ESC, EATX]).await?,
                 ESC => self.write_bytes(digest, &[ESC, EESC]).await?,
                 b => self.write_bytes(digest, &[b]).await?,
-            };
+            }
         }
         Ok(())
     }

@@ -216,7 +216,7 @@ impl RpcMessage {
         match rv {
             Some(rv) => { mm.insert(key, rv.into()); }
             None => { mm.remove(key); }
-        };
+        }
         self
     }
     fn ival(&self, key: i32) -> Option<&RpcValue> {
