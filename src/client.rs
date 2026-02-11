@@ -20,7 +20,7 @@ pub enum LoginType {
     Sha1,
 }
 impl LoginType {
-    pub fn to_str(&self) -> &str {
+    pub fn to_str(self) -> &'static str {
         match self {
             LoginType::Plain => "PLAIN",
             LoginType::Sha1 => "SHA1",
