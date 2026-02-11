@@ -40,16 +40,19 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             with_crc: false,
         }
     }
+    #[must_use]
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self
     }
 
+    #[must_use]
     pub fn with_frame_size_limit(mut self, frame_size_limit: usize) -> Self {
         self.frame_size_limit = frame_size_limit;
         self
     }
 
+    #[must_use]
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
         self
@@ -237,10 +240,12 @@ impl<W: AsyncWrite + Unpin + Send> SerialFrameWriter<W> {
             with_crc: false,
         }
     }
+    #[must_use]
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self
     }
+    #[must_use]
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
         self

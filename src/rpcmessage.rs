@@ -133,6 +133,7 @@ impl RpcMessage {
     pub fn set_param(&mut self, rv: impl Into<RpcValue>) -> &mut Self {
         self.set_param_opt(Some(rv))
     }
+    #[must_use]
     pub fn with_param(mut self, param: impl Into<RpcValue>) -> Self {
         self.set_param_opt(Some(param));
         self

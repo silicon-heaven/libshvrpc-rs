@@ -28,11 +28,13 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
             frame_size_limit: DEFAULT_FRAME_SIZE_LIMIT,
         }
     }
+    #[must_use]
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self
     }
 
+    #[must_use]
     pub fn with_frame_size_limit(mut self, frame_size_limit: usize) -> Self {
         self.frame_size_limit = frame_size_limit;
         self
@@ -129,6 +131,7 @@ impl<W: AsyncWrite + Unpin + Send> StreamFrameWriter<W> {
     pub fn new(writer: W) -> Self {
         Self { peer_id: 0, writer }
     }
+    #[must_use]
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self

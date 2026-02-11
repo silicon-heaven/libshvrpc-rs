@@ -391,6 +391,7 @@ where
         }
     }
 
+    #[must_use]
     pub fn with_frame_size_limit(mut self, limit: usize) -> Self {
         self.frame_size_limit = limit;
         self
@@ -523,11 +524,13 @@ where
         }
     }
 
+    #[must_use]
     pub fn with_max_send_retries(mut self, retries_count: u8) -> Self {
         self.max_send_retries = retries_count;
         self
     }
 
+    #[must_use]
     pub fn with_delay_between_retries(mut self, delay: Duration) -> Self {
         self.delay_between_retries = delay;
         self
