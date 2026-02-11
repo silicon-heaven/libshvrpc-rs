@@ -29,7 +29,7 @@ pub fn try_chainpack_buf_to_meta(buf: &[u8]) -> Option<shvproto::MetaMap> {
 }
 
 pub(crate) fn attach_meta_to_timeout_error(err: ReceiveFrameError, data: &[u8]) -> ReceiveFrameError {
-    if let ReceiveFrameError::Timeout(None) = err {
+    if matches!(err, ReceiveFrameError::Timeout(None)) {
         ReceiveFrameError::Timeout(try_chainpack_buf_to_meta(data))
     } else {
         err

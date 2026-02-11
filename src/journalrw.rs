@@ -468,7 +468,7 @@ pub fn matches_path_pattern(path: impl AsRef<str>, pattern: impl AsRef<str>) -> 
     }
 
     // Match "**" at the end of the pattern
-    while let Some("**") = pattern_parts.get(pattern_ix).copied() {
+    while pattern_parts.get(pattern_ix).copied() == Some("**") {
         pattern_ix += 1;
     }
 
