@@ -436,30 +436,30 @@ pub fn matches_path_pattern(path: impl AsRef<str>, pattern: impl AsRef<str>) -> 
     let path_parts: Vec<&str> = path.as_ref().split('/').collect();
     let pattern_parts: Vec<&str> = pattern.as_ref().split('/').collect();
 
-    let (mut path_ix, mut patt_ix) = (0, 0);
-    let (mut last_starstar_patt_ix, mut last_starstar_path_ix) = (None, 0);
+    let (mut path_ix, mut pattern_ix) = (0, 0);
+    let (mut last_starstar_pattern_ix, mut last_starstar_path_ix) = (None, 0);
 
     while path_ix < path_parts.len() {
-        match pattern_parts.get(patt_ix).copied() {
+        match pattern_parts.get(pattern_ix).copied() {
             Some("**") => {
-                last_starstar_patt_ix = Some(patt_ix);
+                last_starstar_pattern_ix = Some(pattern_ix);
                 last_starstar_path_ix = path_ix;
-                patt_ix += 1;
+                pattern_ix += 1;
             }
             Some("*") => {
                 path_ix += 1;
-                patt_ix += 1;
+                pattern_ix += 1;
             }
             Some(literal) if literal == *path_parts.get(path_ix).expect("The bound is checked above") => {
                 path_ix += 1;
-                patt_ix += 1;
+                pattern_ix += 1;
             }
             _ => {
-                if let Some(starstart_patt_ix) = last_starstar_patt_ix {
+                if let Some(starstart_patt_ix) = last_starstar_pattern_ix {
                     // Backtrack to the last occurence of "**"
                     last_starstar_path_ix += 1;
                     path_ix = last_starstar_path_ix;
-                    patt_ix = starstart_patt_ix + 1;
+                    pattern_ix = starstart_patt_ix + 1;
                 } else {
                     return false;
                 }
@@ -468,11 +468,11 @@ pub fn matches_path_pattern(path: impl AsRef<str>, pattern: impl AsRef<str>) -> 
     }
 
     // Match "**" at the end of the pattern
-    while let Some("**") = pattern_parts.get(patt_ix).copied() {
-        patt_ix += 1;
+    while let Some("**") = pattern_parts.get(pattern_ix).copied() {
+        pattern_ix += 1;
     }
 
-    patt_ix == pattern_parts.len()
+    pattern_ix == pattern_parts.len()
 }
 
 #[derive(Clone, Debug)]

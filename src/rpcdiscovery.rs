@@ -298,8 +298,6 @@ impl TryFrom<RpcValue> for DirResult {
 
 #[cfg(test)]
 mod test {
-    use std::collections::BTreeMap;
-
     use crate::metamethod::Flags;
 
     use super::*;
@@ -332,7 +330,7 @@ mod test {
 
     #[test]
     fn method_info_from_rpcvalue() {
-        let rv_map: RpcValue = shvproto::make_map!(
+        let rv: RpcValue = shvproto::make_map!(
             "name" => "method",
             "flags" => Flags::IsGetter,
             "access" => "rd",
@@ -340,9 +338,9 @@ mod test {
             "result" => "result",
             "signals" => shvproto::make_map!("sig" => Some("String")),
         ).into();
-        assert_eq!(method_info(), (&rv_map).try_into().unwrap());
+        assert_eq!(method_info(), (&rv).try_into().unwrap());
 
-        let rv_map: RpcValue = shvproto::make_map!(
+        let rv: RpcValue = shvproto::make_map!(
             "name" => "method",
             "flags" => Flags::IsGetter,
             "accessGrant" => "rd",
@@ -350,17 +348,17 @@ mod test {
             "result" => "result",
             "signals" => shvproto::make_map!("sig" => Some("String")),
         ).into();
-        assert_eq!(method_info(), (&rv_map).try_into().unwrap());
+        assert_eq!(method_info(), (&rv).try_into().unwrap());
 
-        let rv_imap: RpcValue = [
-            (i32::from(DirAttribute::Name), RpcValue::from("method")),
-            (i32::from(DirAttribute::Flags), RpcValue::from(Flags::IsGetter)),
-            (i32::from(DirAttribute::AccessLevel), RpcValue::from(AccessLevel::Read as i32)),
-            (i32::from(DirAttribute::Param), RpcValue::from("param")),
-            (i32::from(DirAttribute::Result), RpcValue::from("result")),
-            (i32::from(DirAttribute::Signals), RpcValue::from(shvproto::make_map!("sig" => Some("String")))),
-        ].into_iter().collect::<BTreeMap::<_,_>>().into();
-        assert_eq!(method_info(), (&rv_imap).try_into().unwrap());
+        let rv: RpcValue = shvproto::make_imap!(
+            i32::from(DirAttribute::Name) => "method",
+            i32::from(DirAttribute::Flags) => Flags::IsGetter,
+            i32::from(DirAttribute::AccessLevel) => AccessLevel::Read as i32,
+            i32::from(DirAttribute::Param) => "param",
+            i32::from(DirAttribute::Result) => "result",
+            i32::from(DirAttribute::Signals) => shvproto::make_map!("sig" => Some("String")),
+        ).into();
+        assert_eq!(method_info(), (&rv).try_into().unwrap());
     }
 
     #[test]
