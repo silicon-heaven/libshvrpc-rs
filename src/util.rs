@@ -51,8 +51,10 @@ pub fn starts_with_path(shv_path: impl AsRef<str>, with_path: impl AsRef<str>) -
     if with_path_without_trailing_slash.is_empty() {
         return true
     }
-    shv_path.starts_with(with_path_without_trailing_slash)
-        && (shv_path.len() == with_path_without_trailing_slash.len() || shv_path[with_path_without_trailing_slash.len() ..].starts_with('/'))
+    #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
+    let res = shv_path.starts_with(with_path_without_trailing_slash)
+        && (shv_path.len() == with_path_without_trailing_slash.len() || shv_path[with_path_without_trailing_slash.len() ..].starts_with('/'));
+    res
 }
 /// Returns `shv_path` without `to_strip` prefix.
 ///
@@ -117,6 +119,7 @@ pub fn left_glob(glob: &str, glob_len: usize) -> Option<&str> {
     }
     if n == glob_len {
         ix += n - 1; // add intermediate slashes
+        #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
         Some(&glob[0..ix])
     } else {
         None
@@ -128,6 +131,7 @@ pub fn split_glob_on_match<'a>(glob_pattern: &'a str, shv_path: &str) -> Result<
     }
     // find first '**' occurrence in paths
     let globstar_pos = glob_pattern.find("**");
+    #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
     let pattern1 = match globstar_pos {
         None => { glob_pattern }
         Some(ix) => {
@@ -158,16 +162,19 @@ pub fn split_glob_on_match<'a>(glob_pattern: &'a str, shv_path: &str) -> Result<
                     Ok(Some((trimmed_pattern1, "")))
                 } else {
                     // a/b/c vs a/b
+                    #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
                     Ok(Some((trimmed_pattern1, &glob_pattern[(trimmed_pattern1.len()+1) .. ])))
                 }
             }
             Some(ix) => {
                 if shv_path_glen > pattern1_glen {
                     // a/b/** vs a/b/c
+                    #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
                     Ok(Some((&glob_pattern[0 .. (ix+2)], &glob_pattern[ix ..])))
                 } else {
                     // a/b/c/** vs a/b/c
                     // a/b/c/d/** vs a/b/c
+                    #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
                     Ok(Some((trimmed_pattern1, &glob_pattern[trimmed_pattern1.len()+1 ..])))
                 }
             }
@@ -245,6 +252,7 @@ pub fn find_longest_path_prefix<'a, V>(
         if path.is_empty() {
             break;
         }
+        #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
         if let Some(slash_ix) = path.rfind('/') {
             path = &shv_path[..slash_ix];
             rest = &shv_path[(slash_ix + 1)..];

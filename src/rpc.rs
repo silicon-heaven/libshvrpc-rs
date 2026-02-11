@@ -62,17 +62,21 @@ pub struct ShvRI {
 
 impl ShvRI {
     pub fn path(&self) -> &str {
+        #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
         &self.ri[0..self.method_sep_ix]
     }
     pub fn method(&self) -> &str {
         if let Some(ix) = self.signal_sep_ix {
+            #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
             &self.ri[self.method_sep_ix + 1..ix]
         } else {
+            #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
             &self.ri[self.method_sep_ix + 1..]
         }
     }
     pub fn signal(&self) -> Option<&str> {
         if let Some(ix) = self.signal_sep_ix {
+            #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
             Some(&self.ri[ix + 1..])
         } else {
             None
@@ -124,9 +128,11 @@ impl TryFrom<&str> for ShvRI {
 impl TryFrom<String> for ShvRI {
     type Error = &'static str;
     fn try_from(s: String) -> std::result::Result<Self, <Self as TryFrom<String>>::Error> {
+        #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
         let Some(method_sep_ix) = s[..].find(':') else {
             return Err("Method separtor ':' is missing.");
         };
+        #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
         let signal_sep_ix = s[method_sep_ix + 1..]
             .find(':')
             .map(|ix| ix + method_sep_ix + 1);
