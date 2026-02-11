@@ -70,6 +70,7 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                             )
                         );
                     }
+                    #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
                     if frame_size as usize > self.frame_size_limit() {
                         return Err(ReceiveFrameError::FrameTooLarge(
                                 format!("Client ID: {}, Jumbo frame of {frame_size} bytes is not supported. Jumbo frame threshold is {} bytes.",

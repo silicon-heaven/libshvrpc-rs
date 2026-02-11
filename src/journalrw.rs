@@ -177,6 +177,7 @@ fn rpcvalue_to_journal_entry(entry: &RpcValue, paths_dict: &BTreeMap<i32, String
 
     let path = row.next().unwrap_or_default();
     let path = match &path.value {
+        #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
         shvproto::Value::Int(idx) => paths_dict
             .get(&(*idx as i32))
             .ok_or_else(|| format!("Wrong path reference {idx} of journal entry: {}", entry.to_cpon()))?,
@@ -188,6 +189,7 @@ fn rpcvalue_to_journal_entry(entry: &RpcValue, paths_dict: &BTreeMap<i32, String
 
     let short_time = row.next().unwrap_or_default();
     let short_time = match short_time.value {
+        #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
         shvproto::Value::Int(val) if val as i32 >= 0 => val as _,
         _ => NO_SHORT_TIME,
     };
@@ -203,7 +205,7 @@ fn rpcvalue_to_journal_entry(entry: &RpcValue, paths_dict: &BTreeMap<i32, String
     let value_flags = match value_flags {
         Some(value_flags) => match &value_flags.value {
             shvproto::Value::UInt(val) => *val,
-            shvproto::Value::Int(val) => *val as u64,
+            shvproto::Value::Int(val) => val.cast_unsigned(),
             _ => return make_err(&format!("Wrong `valueFlags` {} of journal entry", value_flags.to_cpon())),
         },
         None => 0,
@@ -239,6 +241,7 @@ pub(crate) fn journal_entry_to_rpclist(
         // If path already present, use the existing index; otherwise insert new one.
         let idx = match cache.get(&entry.path) {
             Some(&idx) => idx,
+            #[expect(clippy::cast_possible_wrap, clippy::cast_possible_truncation, reason = "We don't mind truncation")]
             None => {
                 let new_idx = cache.len() as i32;
                 cache.insert(entry.path.clone(), new_idx);
@@ -752,6 +755,7 @@ mod tests {
         ];
         {
             let (mut rv, paths_dict) = journal_entries_to_rpcvalue(&entries, false);
+            #[expect(clippy::cast_possible_wrap, reason = "Not many entries to truncate")]
             let header = Log2Header {
                 record_count: entries.len() as _,
                 record_count_limit: RECORD_COUNT_LIMIT_DEFAULT,

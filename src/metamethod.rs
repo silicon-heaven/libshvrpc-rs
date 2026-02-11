@@ -46,8 +46,8 @@ impl TryFrom<&RpcValue> for Flags {
     fn try_from(value: &RpcValue) -> Result<Self, Self::Error> {
         use shvproto::rpcvalue::Value;
         match &value.value {
-            Value::Int(val) => Ok(Flags::from_bits_retain(*val as u32)),
-            Value::UInt(val) => Ok(Flags::from_bits_retain(*val as u32)),
+            Value::Int(val) => Ok(Flags::from_bits_retain(u32::try_from(*val).map_err(|err| format!("Flags too long: {err}"))?)),
+            Value::UInt(val) => Ok(Flags::from_bits_retain(u32::try_from(*val).map_err(|err| format!("Flags too long: {err}"))?)),
             _ => Err(format!("Wrong RpcValue type for Flags: {}", value.type_name())),
         }
     }
@@ -137,7 +137,7 @@ impl TryFrom<&RpcValue> for AccessLevel {
     fn try_from(value: &RpcValue) -> Result<Self, Self::Error> {
         use shvproto::rpcvalue::Value;
         match &value.value {
-            Value::Int(val) => (*val as i32).try_into(),
+            Value::Int(val) => i32::try_from(*val).map_err(|err| format!("Integer value is too high for AccessLevel: {err}"))?.try_into(),
             Value::String(val) =>
                 AccessLevel::from_str(val.as_str())
                 .ok_or_else(|| format!("Wrong value of AccessLevel: {val}")),

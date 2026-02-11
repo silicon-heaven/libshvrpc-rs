@@ -139,10 +139,10 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                             *crc_b = b;
                         }
                         fn as_u32_be(array: &[u8; 4]) -> u32 {
-                            ((array[0] as u32) << 24)
-                                + ((array[1] as u32) << 16)
-                                + ((array[2] as u32) << 8)
-                                + (array[3] as u32)
+                            (u32::from(array[0]) << 24)
+                                + (u32::from(array[1]) << 16)
+                                + (u32::from(array[2]) << 8)
+                                + u32::from(array[3])
                         }
                         let crc1 = as_u32_be(&crc_data);
                         // let digest = replace(&mut self.crc_digest, CRC_32.digest());

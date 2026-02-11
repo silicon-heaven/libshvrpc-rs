@@ -67,7 +67,7 @@ impl From<LoginParams> for RpcValue {
         login.insert("type".into(), RpcValue::from(value.login_type.to_str()));
         map.insert("login".into(), RpcValue::from(login));
         let mut options = shvproto::Map::new();
-        options.insert("idleWatchDogTimeOut".into(), RpcValue::from((value.heartbeat_interval.as_secs() * 3) as i64));
+        options.insert("idleWatchDogTimeOut".into(), RpcValue::from((value.heartbeat_interval.as_secs() * 3).cast_signed()));
         let mut device = shvproto::Map::new();
         if !value.device_id.is_empty() {
             device.insert("deviceId".into(), RpcValue::from(value.device_id));

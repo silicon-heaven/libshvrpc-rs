@@ -59,6 +59,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
             let mut buffrd = BufReader::new(&lendata[..]);
             let mut rd = ChainPackReader::new(&mut buffrd);
             match rd.read_uint_data() {
+                #[expect(clippy::cast_possible_truncation, reason = "We expect 64-bit platform")]
                 Ok(len) => break len as usize,
                 Err(err) => {
                     let ReadError { reason, .. } = err;

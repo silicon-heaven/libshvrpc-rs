@@ -508,7 +508,7 @@ impl TryFrom<i32> for RpcErrorCodeKind {
 
 impl From<u32> for RpcErrorCodeKind {
     fn from(value: u32) -> Self {
-        RpcErrorCode::try_from(value as i32).map_or_else(|_| Self::UserError(value), RpcErrorCodeKind::from)
+        RpcErrorCode::try_from(value.cast_signed()).map_or_else(|_| Self::UserError(value), RpcErrorCodeKind::from)
     }
 }
 
@@ -555,7 +555,7 @@ impl RpcError {
     }
     pub fn to_rpcvalue(&self) -> RpcValue {
         let mut m = IMap::new();
-        m.insert(RpcErrorKey::Code as i32, RpcValue::from(u32::from(self.code) as i32));
+        m.insert(RpcErrorKey::Code as i32, RpcValue::from(u32::from(self.code).cast_signed()));
         m.insert(RpcErrorKey::Message as i32, RpcValue::from(&self.message));
         RpcValue::from(m)
     }
