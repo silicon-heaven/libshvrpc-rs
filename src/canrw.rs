@@ -747,7 +747,7 @@ mod tests {
             ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter)).unwrap();
         }.fuse());
 
-        let (_, sender_res) = join(receiver, wr.send_reset_session()).await;
+        let ((), sender_res) = join(receiver, wr.send_reset_session()).await;
         assert!(sender_res.is_ok());
     }
 
@@ -784,7 +784,7 @@ mod tests {
             ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter)).unwrap();
         }.fuse());
 
-        let (_, sender_res) = join(receiver, wr.send_reset_session()).await;
+        let ((), sender_res) = join(receiver, wr.send_reset_session()).await;
         assert!(sender_res.is_ok());
     }
 
@@ -810,7 +810,7 @@ mod tests {
             }
         }.fuse());
 
-        let (_, sender_res) = join(receiver, wr.send_reset_session()).await;
+        let ((), sender_res) = join(receiver, wr.send_reset_session()).await;
         assert!(sender_res.is_err());
     }
 
@@ -937,7 +937,7 @@ mod tests {
 
         loop {
             futures::select! {
-                _ = send_frames => { }
+                () = send_frames => { }
                 res = read_fut => {
                     let received_rpc_frame = res.expect("Valid RpcFrame");
                     assert_eq!(rpc_frame, received_rpc_frame);
@@ -1015,7 +1015,7 @@ mod tests {
 
         loop {
             futures::select! {
-                _ = send_fut => { }
+                () = send_fut => { }
 
                 data_frame = frames_rx.select_next_some() => {
                     assert_eq!(data_frame.header.src, DEVICE_ADDR);

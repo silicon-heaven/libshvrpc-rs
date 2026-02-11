@@ -502,13 +502,13 @@ impl TryFrom<i32> for RpcErrorCodeKind {
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         RpcErrorCode::try_from(value)
             .map(Self::RpcError)
-            .or_else(|_| u32::try_from(value).map(Self::UserError))
+            .or_else(|()| u32::try_from(value).map(Self::UserError))
     }
 }
 
 impl From<u32> for RpcErrorCodeKind {
     fn from(value: u32) -> Self {
-        RpcErrorCode::try_from(value.cast_signed()).map_or_else(|_| Self::UserError(value), RpcErrorCodeKind::from)
+        RpcErrorCode::try_from(value.cast_signed()).map_or_else(|()| Self::UserError(value), RpcErrorCodeKind::from)
     }
 }
 
