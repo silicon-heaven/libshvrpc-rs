@@ -592,9 +592,8 @@ where
             let Ok(ack_frame) = ack_frame_or_timeout else {
                 if retries_count == MAX_TIMEOUT_RETRANSMISSIONS {
                     return Err(format!("Frame send timed out while waiting for ACK (frame counter: {frame_counter})").into());
-                } else {
-                    continue;
                 }
+                continue;
             };
 
             let ack_frame = ack_frame.ok_or("Session terminated while waiting for ACK")?;
