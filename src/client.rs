@@ -190,6 +190,7 @@ where
     duration.human_format().serialize(serializer)
 }
 
+#[expect(clippy::ref_option, reason = "Mandated by serde")]
 pub fn serialize_option_duration_as_string<S>(
     duration_opt: &Option<Duration>,
     serializer: S,
