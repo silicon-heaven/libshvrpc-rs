@@ -540,7 +540,7 @@ impl RpcError {
     pub fn from_rpcvalue(rv: &RpcValue) -> Option<Self> {
         if rv.is_imap() {
             let m = rv.as_imap();
-            let code = m.get(&(RpcErrorKey::Code as i32)).map(RpcValue::as_u32).unwrap_or(USER_ERROR_CODE_DEFAULT);
+            let code = m.get(&(RpcErrorKey::Code as i32)).map_or(USER_ERROR_CODE_DEFAULT, RpcValue::as_u32);
             let msg = m.get(&(RpcErrorKey::Message as i32)).map_or_else(|| "".to_string(), |msg| msg.as_str().to_string());
             Some(RpcError {
                 code: code.into(),
