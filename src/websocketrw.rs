@@ -6,7 +6,7 @@ use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
 use std::io::BufReader;
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use log::*;
+use log::warn;
 use shvproto::ChainPackWriter;
 use tungstenite::Message;
 use crate::streamrw::DEFAULT_FRAME_SIZE_LIMIT;

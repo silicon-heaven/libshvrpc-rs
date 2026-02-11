@@ -1,6 +1,6 @@
 use crate::metamethod::AccessLevel;
 use shvproto::{RpcValue, Value};
-use shvproto::metamap::*;
+use shvproto::metamap::{MetaMap, GetIndex};
 use shvproto::rpcvalue::{IMap, List};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::fmt;

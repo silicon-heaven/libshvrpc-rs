@@ -5,7 +5,7 @@ use crate::rpcframe::{Protocol, RpcFrame};
 use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use log::*;
+use log::{log_enabled, Level};
 use shvproto::reader::ReadErrorReason;
 use shvproto::{ChainPackReader, ChainPackWriter, ReadError};
 use std::cmp::min;

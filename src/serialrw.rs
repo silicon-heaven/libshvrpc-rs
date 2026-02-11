@@ -5,7 +5,7 @@ use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
 use crc::{Crc, Digest, CRC_32_ISO_HDLC};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use log::*;
+use log::{log, log_enabled, Level};
 use crate::streamrw::DEFAULT_FRAME_SIZE_LIMIT;
 
 const STX: u8 = 0xA2;

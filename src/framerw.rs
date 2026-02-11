@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncReadExt};
-use log::{*};
+use log::{log, log_enabled, Level};
 use crate::rpcframe::{rpcmsg_log_length_threshold, Protocol, RpcFrame};
 use shvproto::{ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
