@@ -87,7 +87,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
             assert!(bytes.len() <= bytes_to_read, "We can't get more bytes than bytes_to_read");
             let first_chunk = data.is_empty();
             if first_chunk {
-                let protocol = bytes.get(0).expect("Bytes is not empty because get_raw_bytes never returns an empty slice");
+                let protocol = bytes.first().expect("Bytes is not empty because get_raw_bytes never returns an empty slice");
                 if *protocol > Protocol::ChainPack as u8 {
                     return Err(ReceiveFrameError::FramingError(format!("Invalid protocol type received: {protocol}")))
                 }
