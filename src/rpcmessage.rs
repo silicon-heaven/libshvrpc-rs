@@ -33,6 +33,7 @@ pub enum Tag {
     Source = 19,
     Repeat = 20,
     Part = 21,
+    #[expect(clippy::upper_case_acronyms, reason = "We want this to look special")]
     MAX
 }
 pub enum Key {
