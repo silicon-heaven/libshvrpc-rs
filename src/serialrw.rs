@@ -218,7 +218,6 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
                 Err(ReceiveFrameError::FramingError(e)) => {
                     // silently ignore ATX, and CRC erorrs
                     log!(target: "SerialFrameError", Level::Warn, "Ignoring serial framing error: {e}");
-                    continue;
                 }
                 Err(e) => {
                     return Err(e)
