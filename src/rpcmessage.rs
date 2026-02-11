@@ -176,7 +176,7 @@ impl RpcMessage {
         self.response().err()
     }
     pub fn set_error(&mut self, err: RpcError) -> &mut Self {
-        self.set_ival(Key::Error, Some(err.to_rpcvalue()))
+        self.set_ival(Key::Error, Some(err.into_rpcvalue()))
     }
     pub fn is_success(&self) -> bool {
         matches!(self.response(), Ok(Response::Success(_)))
@@ -552,6 +552,10 @@ impl RpcError {
         }
     }
     pub fn to_rpcvalue(&self) -> RpcValue {
+        self.clone().into_rpcvalue()
+    }
+
+    pub fn into_rpcvalue(self) -> RpcValue {
         let mut m = IMap::new();
         m.insert(RpcErrorKey::Code as i32, RpcValue::from(u32::from(self.code).cast_signed()));
         m.insert(RpcErrorKey::Message as i32, RpcValue::from(&self.message));
