@@ -707,7 +707,7 @@ mod tests {
             .map(|item|
                 item.map(|mut entry| {
                     if entry.epoch_msec == 0 {
-                        entry.epoch_msec = epoch_ms_now
+                        entry.epoch_msec = epoch_ms_now;
                     }
                     entry
                 })

@@ -172,11 +172,11 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                     }
                     update_crc_digest(&mut crc_digest, b);
                     let ub = Self::unescape_byte(b)?;
-                    push_data_byte(ub, &mut data)?
+                    push_data_byte(ub, &mut data)?;
                 }
                 b => {
                     update_crc_digest(&mut crc_digest, b);
-                    push_data_byte(b, &mut data)?
+                    push_data_byte(b, &mut data)?;
                 }
             };
         }
