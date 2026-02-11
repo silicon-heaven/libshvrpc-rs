@@ -39,7 +39,7 @@ enum DataChangeMetaTag {
 }
 
 pub fn meta_value<I: shvproto::metamap::GetIndex>(rv: &RpcValue, key: I) -> Option<&RpcValue> {
-    rv.meta.as_ref().and_then(|meta| meta.get(key))
+    rv.meta.as_ref()?.get(key)
 }
 
 pub fn is_data_change(rv: &RpcValue) -> bool {

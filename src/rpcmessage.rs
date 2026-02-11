@@ -141,8 +141,7 @@ impl RpcMessage {
         self.set_ival(Key::Params, rv)
     }
     pub fn abort(&self) -> Option<AbortParam> {
-        self.ival(Key::Abort as i32)
-            .and_then(|v| v.try_into().ok())
+        self.ival(Key::Abort as i32)?.try_into().ok()
     }
     pub fn set_abort(&mut self, param: AbortParam) -> &mut Self {
         self.set_ival(Key::Abort, Some(param))
@@ -325,10 +324,10 @@ pub trait RpcMessageMetaTags {
         self.tag(Tag::AccessLevel as i32)
             .map(RpcValue::as_i32)
             .or_else(|| self.tag(Tag::Access as i32)
-                     .map(RpcValue::as_str)
-                     .and_then(|s| s.split(',')
-                               .find_map(AccessLevel::from_str)
-                               .map(|v| v as i32)))
+                     .map(RpcValue::as_str)?
+                     .split(',')
+                     .find_map(AccessLevel::from_str)
+                     .map(|v| v as i32))
     }
     fn set_access_level(&mut self, grant: AccessLevel) -> &mut Self::Target {
         self.set_tag(Tag::Access as i32, Some(RpcValue::from(grant.as_str())));
