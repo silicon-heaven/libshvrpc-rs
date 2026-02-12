@@ -3,7 +3,7 @@ name = "shvrpc"
 description = "Rust implementation of the SHV-RPC protocol"
 license = "MIT"
 repository = "https://github.com/silicon-heaven/libshvrpc-rs"
-version = "13.0.0"
+version = "13.0.1"
 edition = "2024"
 
 [dependencies]
@@ -88,7 +88,6 @@ useless_let_if_seq = "warn"
 vec_box = "warn"
 wrong_self_convention = "warn"
 
-decimal_bitwise_operands = "allow"
 doc_markdown = "allow"
 expect_used = "allow"
 explicit_iter_loop = "allow"
