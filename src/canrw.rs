@@ -1260,7 +1260,7 @@ mod tests {
         }.fuse());
 
         let send_frames = pin!(async move {
-            let counter = 42 | 0x80;
+            let counter = 0x002a | 0x80;
 
             frames_tx.unbounded_send(DataFrame::new(
                     PEER_ADDR,
@@ -1302,7 +1302,7 @@ mod tests {
             }
 
             // Send a new frame
-            let counter = 24 | 0x80;
+            let counter = 0x0018 | 0x80;
             frames_tx.unbounded_send(DataFrame::new(
                     PEER_ADDR,
                     DEVICE_ADDR,
