@@ -6,7 +6,7 @@ use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
 use std::io::BufReader;
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use log::*;
+use log::warn;
 use shvproto::ChainPackWriter;
 use tungstenite::Message;
 use crate::streamrw::DEFAULT_FRAME_SIZE_LIMIT;
@@ -24,10 +24,12 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
             frame_size_limit: DEFAULT_FRAME_SIZE_LIMIT,
         }
     }
+    #[must_use]
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self
     }
+    #[must_use]
     pub fn with_frame_size_limit(mut self, frame_size_limit: usize) -> Self {
         self.frame_size_limit = frame_size_limit;
         self
@@ -62,7 +64,7 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                             ReceiveFrameError::FramingError(format!("Cannot parse size of a frame: {e}"))
                         )?;
                     let frame_start = rd.position();
-                    let frame = &bytes[frame_start..];
+                    let frame = bytes.get(frame_start..).expect("The reader can't be after our bytes");
                     if frame_size != frame.len() as u64 {
                         return Err(
                             ReceiveFrameError::FramingError(
@@ -70,6 +72,7 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                             )
                         );
                     }
+                    #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
                     if frame_size as usize > self.frame_size_limit() {
                         return Err(ReceiveFrameError::FrameTooLarge(
                                 format!("Client ID: {}, Jumbo frame of {frame_size} bytes is not supported. Jumbo frame threshold is {} bytes.",
@@ -84,11 +87,8 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
                 }
                 tungstenite::Message::Text(utf8_bytes) =>
                     warn!("Received unsupported Text message on a WebSocket: {utf8_bytes}"),
-                Message::Ping(_) => {}
-                Message::Pong(_) => {}
-                Message::Close(_) => {}
-                Message::Frame(_) => {}
-            };
+                Message::Ping(_) | Message::Pong(_) | Message::Close(_) | Message::Frame(_) => {}
+            }
         }
     }
 }
@@ -101,6 +101,7 @@ impl<W: Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin + Send> W
     pub fn new(writer: W) -> Self {
         Self { peer_id: 0, writer }
     }
+    #[must_use]
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self
@@ -130,6 +131,7 @@ impl<W: Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin + Send> F
 
 #[cfg(test)]
 mod test {
+    use log::{LevelFilter, debug, error};
     use shvproto::util::{hex_array, hex_dump};
     use super::*;
     use crate::RpcMessage;
@@ -162,10 +164,12 @@ mod test {
     }
 
     fn init_log() {
-        let _ = env_logger::builder()
+        env_logger::builder()
             .filter(None, LevelFilter::Debug)
             .is_test(true)
-            .try_init();
+            .try_init()
+            .inspect_err(|err| error!("Logger didn't work: {err}"))
+            .ok();
     }
 
     async fn frame_to_data(frame: &RpcFrame) -> Vec<u8> {

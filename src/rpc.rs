@@ -43,7 +43,7 @@ impl Glob {
         self.method.as_str()
     }
     pub fn signal_str(&self) -> Option<&str> {
-        self.signal.as_ref().map(|s| s.as_str())
+        self.signal.as_ref().map(Pattern::as_str)
     }
 }
 impl TryFrom<&str> for Glob {
@@ -62,21 +62,16 @@ pub struct ShvRI {
 
 impl ShvRI {
     pub fn path(&self) -> &str {
+        #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
         &self.ri[0..self.method_sep_ix]
     }
     pub fn method(&self) -> &str {
-        if let Some(ix) = self.signal_sep_ix {
-            &self.ri[self.method_sep_ix + 1..ix]
-        } else {
-            &self.ri[self.method_sep_ix + 1..]
-        }
+        #[expect(clippy::string_slice, reason = "We expect ASCII strings")]
+        self.signal_sep_ix.map_or_else(|| &self.ri[self.method_sep_ix + 1..], |ix| &self.ri[self.method_sep_ix + 1..ix])
     }
     pub fn signal(&self) -> Option<&str> {
-        if let Some(ix) = self.signal_sep_ix {
-            Some(&self.ri[ix + 1..])
-        } else {
-            None
-        }
+        #[expect(clippy::string_slice, reason = "We expect ASCII strings")]
+        self.signal_sep_ix.map(|ix| &self.ri[ix + 1..])
     }
     pub fn has_signal(&self) -> bool {
         self.signal_sep_ix.is_some()
@@ -105,12 +100,10 @@ impl ShvRI {
         &self.ri
     }
     pub fn from_path_method_signal(path: &str, method: &str, signal: Option<&str>) -> Result<Self, String> {
-        let ri = if let Some(signal) = signal {
+        let ri = signal.map_or_else(|| format!("{path}:{method}"), |signal| {
             let method = if method.is_empty() { "*" } else { method };
             format!("{path}:{method}:{signal}")
-        } else {
-            format!("{path}:{method}")
-        };
+        });
         Ok(Self::try_from(ri)?)
     }
 }
@@ -124,9 +117,11 @@ impl TryFrom<&str> for ShvRI {
 impl TryFrom<String> for ShvRI {
     type Error = &'static str;
     fn try_from(s: String) -> std::result::Result<Self, <Self as TryFrom<String>>::Error> {
+        #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
         let Some(method_sep_ix) = s[..].find(':') else {
             return Err("Method separtor ':' is missing.");
         };
+        #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
         let signal_sep_ix = s[method_sep_ix + 1..]
             .find(':')
             .map(|ix| ix + method_sep_ix + 1);
@@ -137,7 +132,7 @@ impl TryFrom<String> for ShvRI {
         };
         if ri.method().is_empty() {
             Err("Method must not be empty.")
-        } else if ri.signal().is_some() && ri.signal().unwrap().is_empty() {
+        } else if ri.signal().is_some_and(str::is_empty) {
             Err("Signal, if present, must not be empty.")
         }
          else {
@@ -161,14 +156,14 @@ impl SubscriptionParam {
             let m = value.as_map();
             let paths = m
                 .get("paths")
-                .unwrap_or(m.get("path").unwrap_or_default())
+                .unwrap_or_else(|| m.get("path").unwrap_or_default())
                 .as_str();
             let source = m.get("source").unwrap_or_default().as_str();
             let signal = m
                 .get("signal")
-                .or(m.get("methods"))
-                .or(m.get("method"))
-                .map(|v| v.as_str());
+                .or_else(|| m.get("methods"))
+                .or_else(|| m.get("method"))
+                .map(RpcValue::as_str);
             if paths.is_empty() && source.is_empty() && signal.is_none() {
                 Err("Empty map".into())
             } else {
@@ -179,7 +174,7 @@ impl SubscriptionParam {
             }
         } else if value.is_list() {
             let lst = value.as_list();
-            let ri = lst.first().map(|v| v.as_str()).unwrap_or_default();
+            let ri = lst.first().map(RpcValue::as_str).unwrap_or_default();
             if ri.is_empty() {
                 Err("Empty SHV RI".into())
             } else {

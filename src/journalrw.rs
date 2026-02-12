@@ -177,17 +177,19 @@ fn rpcvalue_to_journal_entry(entry: &RpcValue, paths_dict: &BTreeMap<i32, String
 
     let path = row.next().unwrap_or_default();
     let path = match &path.value {
+        #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
         shvproto::Value::Int(idx) => paths_dict
             .get(&(*idx as i32))
             .ok_or_else(|| format!("Wrong path reference {idx} of journal entry: {}", entry.to_cpon()))?,
         shvproto::Value::String(path) => path,
         _ => return make_err(&format!("Wrong path `{}` of journal entry", path.to_cpon())),
-    }.to_string();
+    }.clone();
 
     let value = row.next().unwrap_or_default();
 
     let short_time = row.next().unwrap_or_default();
     let short_time = match short_time.value {
+        #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
         shvproto::Value::Int(val) if val as i32 >= 0 => val as _,
         _ => NO_SHORT_TIME,
     };
@@ -203,7 +205,7 @@ fn rpcvalue_to_journal_entry(entry: &RpcValue, paths_dict: &BTreeMap<i32, String
     let value_flags = match value_flags {
         Some(value_flags) => match &value_flags.value {
             shvproto::Value::UInt(val) => *val,
-            shvproto::Value::Int(val) => *val as u64,
+            shvproto::Value::Int(val) => val.cast_unsigned(),
             _ => return make_err(&format!("Wrong `valueFlags` {} of journal entry", value_flags.to_cpon())),
         },
         None => 0,
@@ -235,20 +237,17 @@ pub(crate) fn journal_entry_to_rpclist(
     entry: &JournalEntry,
     path_cache: Option<&mut BTreeMap<String, i32>>,
 ) -> shvproto::List {
-    let path_value: RpcValue = if let Some(cache) = path_cache {
+    let path_value: RpcValue = path_cache.map_or_else(|| entry.path.clone().into(), |cache| {
         // If path already present, use the existing index; otherwise insert new one.
-        let idx = match cache.get(&entry.path) {
-            Some(&idx) => idx,
-            None => {
-                let new_idx = cache.len() as i32;
-                cache.insert(entry.path.clone(), new_idx);
-                new_idx
-            }
-        };
-        idx.into()
-    } else {
-        entry.path.clone().into()
-    };
+        if let Some(&idx) = cache.get(&entry.path) {
+            return idx.into();
+        }
+
+        #[expect(clippy::cast_possible_wrap, clippy::cast_possible_truncation, reason ="we hope we don't have too many paths")]
+        let new_idx = cache.len() as i32;
+        cache.insert(entry.path.clone(), new_idx);
+        new_idx.into()
+    });
 
     let mut value_flags = ValueFlags::empty();
     if !entry.repeat {
@@ -433,30 +432,30 @@ pub fn matches_path_pattern(path: impl AsRef<str>, pattern: impl AsRef<str>) -> 
     let path_parts: Vec<&str> = path.as_ref().split('/').collect();
     let pattern_parts: Vec<&str> = pattern.as_ref().split('/').collect();
 
-    let (mut path_ix, mut patt_ix) = (0, 0);
-    let (mut last_starstar_patt_ix, mut last_starstar_path_ix) = (None, 0);
+    let (mut path_ix, mut pattern_ix) = (0, 0);
+    let (mut last_starstar_pattern_ix, mut last_starstar_path_ix) = (None, 0);
 
     while path_ix < path_parts.len() {
-        match pattern_parts.get(patt_ix).copied() {
+        match pattern_parts.get(pattern_ix).copied() {
             Some("**") => {
-                last_starstar_patt_ix = Some(patt_ix);
+                last_starstar_pattern_ix = Some(pattern_ix);
                 last_starstar_path_ix = path_ix;
-                patt_ix += 1;
+                pattern_ix += 1;
             }
             Some("*") => {
                 path_ix += 1;
-                patt_ix += 1;
+                pattern_ix += 1;
             }
-            Some(literal) if literal == path_parts[path_ix] => {
+            Some(literal) if literal == *path_parts.get(path_ix).expect("The bound is checked above") => {
                 path_ix += 1;
-                patt_ix += 1;
+                pattern_ix += 1;
             }
             _ => {
-                if let Some(starstart_patt_ix) = last_starstar_patt_ix {
+                if let Some(starstart_patt_ix) = last_starstar_pattern_ix {
                     // Backtrack to the last occurence of "**"
                     last_starstar_path_ix += 1;
                     path_ix = last_starstar_path_ix;
-                    patt_ix = starstart_patt_ix + 1;
+                    pattern_ix = starstart_patt_ix + 1;
                 } else {
                     return false;
                 }
@@ -465,11 +464,11 @@ pub fn matches_path_pattern(path: impl AsRef<str>, pattern: impl AsRef<str>) -> 
     }
 
     // Match "**" at the end of the pattern
-    while let Some("**") = pattern_parts.get(patt_ix).copied() {
-        patt_ix += 1;
+    while pattern_parts.get(pattern_ix).copied() == Some("**") {
+        pattern_ix += 1;
     }
 
-    patt_ix == pattern_parts.len()
+    pattern_ix == pattern_parts.len()
 }
 
 #[derive(Clone, Debug)]
@@ -572,7 +571,7 @@ impl TryFrom<shvproto::MetaMap> for Log2Header {
                 .collect::<Result<BTreeMap<_, _>,_>>()
                 .map_err(|e| format!("Corrupted paths dictionary: {e}"))?,
             Some(v) => return Err(format!("Invalid `pathsDict` type: {}", v.type_name())),
-            None => Default::default(),
+            None => BTreeMap::default(),
         };
         let log_params = match meta.get("logParams") {
             Some(val) => GetLog2Params::try_from(val)?,
@@ -707,7 +706,7 @@ mod tests {
             .map(|item|
                 item.map(|mut entry| {
                     if entry.epoch_msec == 0 {
-                        entry.epoch_msec = epoch_ms_now
+                        entry.epoch_msec = epoch_ms_now;
                     }
                     entry
                 })
@@ -752,6 +751,7 @@ mod tests {
         ];
         {
             let (mut rv, paths_dict) = journal_entries_to_rpcvalue(&entries, false);
+            #[expect(clippy::cast_possible_wrap, reason = "Not many entries to truncate")]
             let header = Log2Header {
                 record_count: entries.len() as _,
                 record_count_limit: RECORD_COUNT_LIMIT_DEFAULT,

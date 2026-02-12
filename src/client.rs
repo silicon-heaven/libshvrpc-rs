@@ -16,14 +16,14 @@ use crate::rpcmessage::RpcMessageMetaTags;
 
 #[derive(Copy, Clone, Debug)]
 pub enum LoginType {
-    PLAIN,
-    SHA1,
+    Plain,
+    Sha1,
 }
 impl LoginType {
-    pub fn to_str(&self) -> &str {
+    pub fn to_str(self) -> &'static str {
         match self {
-            LoginType::PLAIN => "PLAIN",
-            LoginType::SHA1 => "SHA1",
+            LoginType::Plain => "PLAIN",
+            LoginType::Sha1 => "SHA1",
         }
     }
 }
@@ -49,10 +49,10 @@ impl Default for LoginParams {
         LoginParams {
             user: "".to_string(),
             password: "".to_string(),
-            login_type: LoginType::SHA1,
+            login_type: LoginType::Sha1,
             device_id: "".to_string(),
             mount_point: "".to_string(),
-            heartbeat_interval: Duration::from_secs(60),
+            heartbeat_interval: Duration::from_mins(1),
             user_agent: "".to_string(),
         }
     }
@@ -67,7 +67,7 @@ impl From<LoginParams> for RpcValue {
         login.insert("type".into(), RpcValue::from(value.login_type.to_str()));
         map.insert("login".into(), RpcValue::from(login));
         let mut options = shvproto::Map::new();
-        options.insert("idleWatchDogTimeOut".into(), RpcValue::from((value.heartbeat_interval.as_secs() * 3) as i64));
+        options.insert("idleWatchDogTimeOut".into(), RpcValue::from((value.heartbeat_interval.as_secs() * 3).cast_signed()));
         let mut device = shvproto::Map::new();
         if !value.device_id.is_empty() {
             device.insert("deviceId".into(), RpcValue::from(value.device_id));
@@ -121,9 +121,8 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
         let rq = RpcMessage::new_request("", "hello");
         let hello_rq_id = rq.request_id();
         frame_writer.send_message(rq).await?;
-        let resp = match get_response(hello_rq_id, frame_reader).await? {
-            None => continue 'session_loop,
-            Some(resp) => resp,
+        let Some(resp) = get_response(hello_rq_id, frame_reader).await? else {
+            continue 'session_loop
         };
         let Ok(Response::Success(result)) = resp.response() else {
             return Err(resp.error().expect("An error message received").to_rpcvalue().to_cpon().into());
@@ -135,7 +134,7 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
             .as_str();
         debug!("\t nonce received: {nonce}");
         let mut login_params = login_params.clone();
-        if matches!(login_params.login_type, LoginType::SHA1) {
+        if matches!(login_params.login_type, LoginType::Sha1) {
             login_params.password = sha1_password_hash(login_params.password.as_bytes(), nonce.as_bytes());
         }
         let rq = RpcMessage::new_request("", "login").with_param(login_params);
@@ -143,9 +142,8 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
         debug!("\t send login");
         frame_writer.send_message(rq).await?;
 
-        let resp = match get_response(login_rq_id, frame_reader).await? {
-            None => continue 'session_loop,
-            Some(resp) => resp,
+        let Some(resp) = get_response(login_rq_id, frame_reader).await? else {
+            continue 'session_loop
         };
 
         debug!("\t login response result: {:?}", resp.response());
@@ -160,7 +158,7 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
 }
 
 
-fn default_heartbeat() -> Duration { Duration::from_secs(60) }
+fn default_heartbeat() -> Duration { Duration::from_mins(1) }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -192,6 +190,7 @@ where
     duration.human_format().serialize(serializer)
 }
 
+#[expect(clippy::ref_option, reason = "Mandated by serde")]
 pub fn serialize_option_duration_as_string<S>(
     duration_opt: &Option<Duration>,
     serializer: S,
@@ -224,7 +223,7 @@ impl ClientConfig {
         } else if !create_if_not_exist {
             return Err(format!("Cannot find config file: {file_name}").into())
         }
-        let config = Default::default();
+        let config = ClientConfig::default();
         if create_if_not_exist {
             if let Some(config_dir) = file_path.parent() {
                 fs::create_dir_all(config_dir)?;
@@ -269,7 +268,7 @@ reconnect_interval: 3s
             url: Url::parse("tcp:://user@localhost:3755?password=secret").unwrap(),
             device_id: None,
             mount: None,
-            heartbeat_interval: Duration::from_secs(60),
+            heartbeat_interval: Duration::from_mins(1),
             reconnect_interval: Some(Duration::from_secs(3)),
         };
 

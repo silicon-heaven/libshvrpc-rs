@@ -21,7 +21,7 @@ impl From<&RpcValue> for LsParam {
 
 impl From<Option<&RpcValue>> for LsParam {
     fn from(value: Option<&RpcValue>) -> Self {
-        value.map_or(LsParam::List, |rpcval| rpcval.into())
+        value.map_or(LsParam::List, Into::into)
     }
 }
 
@@ -101,7 +101,7 @@ impl From<&RpcValue> for DirParam {
 
 impl From<Option<&RpcValue>> for DirParam {
     fn from(value: Option<&RpcValue>) -> Self {
-        value.map_or(DirParam::Brief, |rpcval| rpcval.into())
+        value.map_or(DirParam::Brief, Into::into)
     }
 }
 
@@ -161,15 +161,13 @@ impl TryFrom<&RpcValue> for MethodInfo {
                             .try_into()
                             .map_err(|e| format_err(DirAttribute::Signals, &e))?;
                         let mut res: BTreeMap<String, Option<String>> = BTreeMap::new();
-                        for (key, val) in signals_map.into_iter() {
-                            res.insert(
-                                key.to_owned(),
-                                match &val.value {
-                                    shvproto::Value::Null => Ok(None),
-                                    shvproto::Value::String(val) => Ok(Some(val.to_string())),
-                                    _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
-                                }?
-                            );
+                        for (key, val) in signals_map {
+                            let value = match &val.value {
+                                shvproto::Value::Null => Ok(None),
+                                shvproto::Value::String(val) => Ok(Some(val.to_string())),
+                                _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
+                            }?;
+                            res.insert(key, value);
                         }
                         res
                     },
@@ -178,7 +176,7 @@ impl TryFrom<&RpcValue> for MethodInfo {
             shvproto::Value::IMap(imap) => {
                 let get_key = |key: DirAttribute| {
                     imap.get(&i32::from(key)).ok_or_else(||
-                        format!("Missing MethodInfo key `{}`({}) in IMap", i32::from(key), <&str>::from(key)).to_string()
+                        format!("Missing MethodInfo key `{}`({}) in IMap", i32::from(key), <&str>::from(key))
                     )
                 };
                 let format_err = |field: DirAttribute, err: &String| {
@@ -208,15 +206,13 @@ impl TryFrom<&RpcValue> for MethodInfo {
                             .try_into()
                             .map_err(|e| format_err(DirAttribute::Signals, &e))?;
                         let mut res: BTreeMap<String, Option<String>> = BTreeMap::new();
-                        for (key, val) in signals_map.into_iter() {
-                            res.insert(
-                                key.to_owned(),
-                                match &val.value {
-                                    shvproto::Value::Null => Ok(None),
-                                    shvproto::Value::String(val) => Ok(Some(val.to_string())),
-                                    _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
-                                }?
-                            );
+                        for (key, val) in signals_map {
+                            let value = match &val.value {
+                                shvproto::Value::Null => Ok(None),
+                                shvproto::Value::String(val) => Ok(Some(val.to_string())),
+                                _ => Err(format_err(DirAttribute::Signals, &format!("Wrong item at key `{key}`: {}", val.type_name()))),
+                            }?;
+                            res.insert(key, value);
                         }
                         res
                     },
@@ -228,9 +224,9 @@ impl TryFrom<&RpcValue> for MethodInfo {
                     name: method_name.to_string(),
                     flags: Flags::empty(),
                     access_level: AccessLevel::Read,
-                    param: Default::default(),
-                    result: Default::default(),
-                    signals: Default::default(),
+                    param: String::default(),
+                    result: String::default(),
+                    signals: BTreeMap::default(),
                 })
             }
             _ => Err(format!("Wrong RpcValue type for MethodInfo: {}", value.type_name())),
@@ -298,8 +294,6 @@ impl TryFrom<RpcValue> for DirResult {
 
 #[cfg(test)]
 mod test {
-    use std::collections::BTreeMap;
-
     use crate::metamethod::Flags;
 
     use super::*;
@@ -326,13 +320,13 @@ mod test {
             access_level: AccessLevel::Read,
             param: "param".to_string(),
             result: "result".to_string(),
-            signals: [("sig".to_string(), Some("String".to_string()))].into_iter().collect(),
+            signals: std::iter::once(("sig".to_string(), Some("String".to_string()))).collect(),
         }
     }
 
     #[test]
     fn method_info_from_rpcvalue() {
-        let rv_map: RpcValue = shvproto::make_map!(
+        let rv: RpcValue = shvproto::make_map!(
             "name" => "method",
             "flags" => Flags::IsGetter,
             "access" => "rd",
@@ -340,9 +334,9 @@ mod test {
             "result" => "result",
             "signals" => shvproto::make_map!("sig" => Some("String")),
         ).into();
-        assert_eq!(method_info(), (&rv_map).try_into().unwrap());
+        assert_eq!(method_info(), (&rv).try_into().unwrap());
 
-        let rv_map: RpcValue = shvproto::make_map!(
+        let rv: RpcValue = shvproto::make_map!(
             "name" => "method",
             "flags" => Flags::IsGetter,
             "accessGrant" => "rd",
@@ -350,17 +344,17 @@ mod test {
             "result" => "result",
             "signals" => shvproto::make_map!("sig" => Some("String")),
         ).into();
-        assert_eq!(method_info(), (&rv_map).try_into().unwrap());
+        assert_eq!(method_info(), (&rv).try_into().unwrap());
 
-        let rv_imap: RpcValue = [
-            (i32::from(DirAttribute::Name), RpcValue::from("method")),
-            (i32::from(DirAttribute::Flags), RpcValue::from(Flags::IsGetter)),
-            (i32::from(DirAttribute::AccessLevel), RpcValue::from(AccessLevel::Read as i32)),
-            (i32::from(DirAttribute::Param), RpcValue::from("param")),
-            (i32::from(DirAttribute::Result), RpcValue::from("result")),
-            (i32::from(DirAttribute::Signals), RpcValue::from(shvproto::make_map!("sig" => Some("String")))),
-        ].into_iter().collect::<BTreeMap::<_,_>>().into();
-        assert_eq!(method_info(), (&rv_imap).try_into().unwrap());
+        let rv: RpcValue = shvproto::make_imap!(
+            i32::from(DirAttribute::Name) => "method",
+            i32::from(DirAttribute::Flags) => Flags::IsGetter,
+            i32::from(DirAttribute::AccessLevel) => AccessLevel::Read as i32,
+            i32::from(DirAttribute::Param) => "param",
+            i32::from(DirAttribute::Result) => "result",
+            i32::from(DirAttribute::Signals) => shvproto::make_map!("sig" => Some("String")),
+        ).into();
+        assert_eq!(method_info(), (&rv).try_into().unwrap());
     }
 
     #[test]
@@ -418,7 +412,7 @@ mod test {
         assert_eq!(RpcValue::from(true).try_into(), Ok(DirResult::Exists(true)));
         assert_eq!(RpcValue::from(false).try_into(), Ok(DirResult::Exists(false)));
 
-        let rv: RpcValue = [
+        let rv: RpcValue = vec![
             shvproto::make_map!(
                 "name" => "method",
                 "flags" => Flags::IsGetter,
@@ -427,10 +421,7 @@ mod test {
                 "result" => "result",
                 "signals" => shvproto::make_map!("sig" => Some("String")),
             )
-        ]
-        .into_iter()
-        .collect::<Vec<_>>()
-        .into();
-        assert_eq!(rv.try_into(), Ok(DirResult::List([method_info()].into_iter().collect())));
+        ].into();
+        assert_eq!(rv.try_into(), Ok(DirResult::List(std::iter::once(method_info()).collect())));
     }
 }

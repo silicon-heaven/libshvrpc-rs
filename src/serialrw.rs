@@ -5,7 +5,7 @@ use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
 use crc::{Crc, Digest, CRC_32_ISO_HDLC};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use log::*;
+use log::{log, log_enabled, Level};
 use crate::streamrw::DEFAULT_FRAME_SIZE_LIMIT;
 
 const STX: u8 = 0xA2;
@@ -40,16 +40,19 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             with_crc: false,
         }
     }
+    #[must_use]
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self
     }
 
+    #[must_use]
     pub fn with_frame_size_limit(mut self, frame_size_limit: usize) -> Self {
         self.frame_size_limit = frame_size_limit;
         self
     }
 
+    #[must_use]
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
         self
@@ -58,14 +61,14 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
         if self.raw_data.bytes_available() == 0 {
             read_raw_data(&mut self.reader, &mut self.raw_data, with_timeout).await?;
         }
-        let b = self.raw_data.data[self.raw_data.consumed];
+        let b = *self.raw_data.data.get(self.raw_data.consumed).expect("Byte must be available");
         self.raw_data.consumed += 1;
         Ok(b)
     }
     fn unget_stx(&mut self) {
         self.raw_data.consumed -= 1;
-        assert!(self.raw_data.data.len() > self.raw_data.consumed);
-        assert_eq!(self.raw_data.data[self.raw_data.consumed], STX);
+        assert!(self.raw_data.data.len() > self.raw_data.consumed, "Length must be more than consumed");
+        assert_eq!(self.raw_data.data.get(self.raw_data.consumed), Some(&STX), "Last byte must be STX");
     }
     fn unescape_byte(b: u8) -> Result<u8, ReceiveFrameError> {
         let b = match b {
@@ -138,13 +141,13 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                             };
                             *crc_b = b;
                         }
-                        fn as_u32_be(array: &[u8; 4]) -> u32 {
-                            ((array[0] as u32) << 24)
-                                + ((array[1] as u32) << 16)
-                                + ((array[2] as u32) << 8)
-                                + (array[3] as u32)
+                        fn as_u32_be(array: [u8; 4]) -> u32 {
+                            (u32::from(array[0]) << 24)
+                                + (u32::from(array[1]) << 16)
+                                + (u32::from(array[2]) << 8)
+                                + u32::from(array[3])
                         }
-                        let crc1 = as_u32_be(&crc_data);
+                        let crc1 = as_u32_be(crc_data);
                         // let digest = replace(&mut self.crc_digest, CRC_32.digest());
                         let crc2 = crc_digest.finalize();
                         //info!("CRC1 {:#04x}", crc1);
@@ -172,19 +175,19 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
                     }
                     update_crc_digest(&mut crc_digest, b);
                     let ub = Self::unescape_byte(b)?;
-                    push_data_byte(ub, &mut data)?
+                    push_data_byte(ub, &mut data)?;
                 }
                 b => {
                     update_crc_digest(&mut crc_digest, b);
-                    push_data_byte(b, &mut data)?
+                    push_data_byte(b, &mut data)?;
                 }
-            };
+            }
         }
         Ok(data)
     }
     #[cfg(test)]
     async fn read_escaped(&mut self) -> crate::Result<Vec<u8>> {
-        let mut data: Vec<u8> = Default::default();
+        let mut data = Vec::default();
         while let Ok(b) = self.get_raw_byte(false).await.map_err(|e| attach_meta_to_timeout_error(e, &data)) {
             let b = match b {
                 ESC => Self::unescape_byte(self.get_raw_byte(false).await.map_err(|e| attach_meta_to_timeout_error(e, &data))?)?,
@@ -215,7 +218,6 @@ impl<R: AsyncRead + Unpin + Send> FrameReader for SerialFrameReader<R> {
                 Err(ReceiveFrameError::FramingError(e)) => {
                     // silently ignore ATX, and CRC erorrs
                     log!(target: "SerialFrameError", Level::Warn, "Ignoring serial framing error: {e}");
-                    continue;
                 }
                 Err(e) => {
                     return Err(e)
@@ -237,10 +239,12 @@ impl<W: AsyncWrite + Unpin + Send> SerialFrameWriter<W> {
             with_crc: false,
         }
     }
+    #[must_use]
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self
     }
+    #[must_use]
     pub fn with_crc_check(mut self, on: bool) -> Self {
         self.with_crc = on;
         self
@@ -271,7 +275,7 @@ impl<W: AsyncWrite + Unpin + Send> SerialFrameWriter<W> {
                 ATX => self.write_bytes(digest, &[ESC, EATX]).await?,
                 ESC => self.write_bytes(digest, &[ESC, EESC]).await?,
                 b => self.write_bytes(digest, &[b]).await?,
-            };
+            }
         }
         Ok(())
     }
@@ -320,6 +324,7 @@ mod test {
     use super::*;
     use crate::framerw::test::from_hex;
     use crate::RpcMessage;
+    use log::{debug, error};
     use macro_rules_attribute::apply;
     use smol_macros::test;
     use smol::io::BufWriter;
@@ -328,10 +333,12 @@ mod test {
     use crate::util::hex_string;
 
     fn init_log() {
-        let _ = env_logger::builder()
+        env_logger::builder()
             // .filter(None, LevelFilter::Debug)
             .is_test(true)
-            .try_init();
+            .try_init()
+            .inspect_err(|err| error!("Logger didn't work: {err}"))
+            .ok();
     }
 
     #[apply(test!)]
@@ -380,7 +387,7 @@ mod test {
             let mut crc_digest = CRC_32.digest();
             crc_digest.update(&reset_frame_data[1 .. 2]);
             let crc = crc_digest.finalize();
-            assert_eq!(crc, 0xd202ef8d);
+            assert_eq!(crc, 0xd202_ef8d);
             let frame = RpcFrame::new_reset_session();
             let mut buff: Vec<u8> = vec![];
             let buffwr = BufWriter::new(&mut buff);

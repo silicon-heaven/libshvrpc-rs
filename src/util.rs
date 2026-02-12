@@ -51,8 +51,10 @@ pub fn starts_with_path(shv_path: impl AsRef<str>, with_path: impl AsRef<str>) -
     if with_path_without_trailing_slash.is_empty() {
         return true
     }
-    shv_path.starts_with(with_path_without_trailing_slash)
-        && (shv_path.len() == with_path_without_trailing_slash.len() || shv_path[with_path_without_trailing_slash.len() ..].starts_with('/'))
+    #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
+    let res = shv_path.starts_with(with_path_without_trailing_slash)
+        && (shv_path.len() == with_path_without_trailing_slash.len() || shv_path[with_path_without_trailing_slash.len() ..].starts_with('/'));
+    res
 }
 /// Returns `shv_path` without `to_strip` prefix.
 ///
@@ -62,23 +64,15 @@ pub fn starts_with_path(shv_path: impl AsRef<str>, with_path: impl AsRef<str>) -
 /// 3. remove prefix, if any
 /// 4. join rest with '/'
 pub fn strip_prefix_path<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
-    if let Some(strip) = path.strip_prefix(prefix) {
-        if strip.is_empty() {
+    let strip = path.strip_prefix(prefix)?;
+    if strip.is_empty() {
+        Some(strip)
+    } else {
+        strip.strip_prefix('/').or(if prefix.is_empty() {
             Some(strip)
         } else {
-            match strip.strip_prefix('/') {
-                None => {
-                    if prefix.is_empty() {
-                        Some(strip)
-                    } else {
-                        None
-                    }
-                }
-                Some(strip) => { Some(strip) }
-            }
-        }
-    } else {
-        None
+            None
+        })
     }
 }
 
@@ -117,6 +111,7 @@ pub fn left_glob(glob: &str, glob_len: usize) -> Option<&str> {
     }
     if n == glob_len {
         ix += n - 1; // add intermediate slashes
+        #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
         Some(&glob[0..ix])
     } else {
         None
@@ -128,52 +123,43 @@ pub fn split_glob_on_match<'a>(glob_pattern: &'a str, shv_path: &str) -> Result<
     }
     // find first '**' occurrence in paths
     let globstar_pos = glob_pattern.find("**");
-    let pattern1 = match globstar_pos {
-        None => { glob_pattern }
-        Some(ix) => {
-            if ix == 0 { "" } else { &glob_pattern[0 .. (ix - 1)] }
-        }
-    };
+    #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
+    let pattern1 = globstar_pos.map_or(glob_pattern, |ix| if ix == 0 { "" } else { &glob_pattern[0 .. (ix - 1)] });
     if globstar_pos.is_some() && pattern1.is_empty() {
         // paths starts with **, this matches everything
         return Ok(Some(("**", glob_pattern)))
     }
-    if pattern1.is_empty() { return Err("Valid glob pattern cannot be empty".into()) };
-    if shv_path.is_empty() { return Err("Valid mount point cannot be empty".into()) };
+    if pattern1.is_empty() {
+        return Err("Valid glob pattern cannot be empty".into())
+    }
+    if shv_path.is_empty() {
+        return Err("Valid mount point cannot be empty".into())
+    }
     let shv_path_glen = glob_len(shv_path);
     let pattern1_glen = glob_len(pattern1);
     let match_len = min(shv_path_glen, pattern1_glen);
-    let trimmed_pattern1 = left_glob(pattern1, match_len).unwrap();
-    let trimmed_path = left_glob(shv_path, match_len).unwrap();
+    let trimmed_pattern1 = left_glob(pattern1, match_len).expect("We check that the segment count matches");
+    let trimmed_path = left_glob(shv_path, match_len).expect("We check that the segment count matches");
     let pattern = Pattern::new(trimmed_pattern1).map_err(|err| err.to_string())?;
     if pattern.matches(trimmed_path) {
-        match globstar_pos {
-            None => {
-                // We don't probably want to use `cmp()` and match, as it might be slower:
-                // https://rust-lang.github.io/rust-clippy/master/index.html#/comparison_chain
-                #[allow(clippy::comparison_chain)]
-                if shv_path_glen > pattern1_glen {
-                    // a/b vs a/b/c
-                    Ok(None)
-                } else if shv_path_glen == pattern1_glen {
-                    // a/b/c vs a/b/c
-                    Ok(Some((trimmed_pattern1, "")))
-                } else {
-                    // a/b/c vs a/b
-                    Ok(Some((trimmed_pattern1, &glob_pattern[(trimmed_pattern1.len()+1) .. ])))
-                }
-            }
-            Some(ix) => {
-                if shv_path_glen > pattern1_glen {
-                    // a/b/** vs a/b/c
-                    Ok(Some((&glob_pattern[0 .. (ix+2)], &glob_pattern[ix ..])))
-                } else {
-                    // a/b/c/** vs a/b/c
-                    // a/b/c/d/** vs a/b/c
-                    Ok(Some((trimmed_pattern1, &glob_pattern[trimmed_pattern1.len()+1 ..])))
-                }
-            }
-        }
+        globstar_pos.map_or_else(|| match shv_path_glen.cmp(&pattern1_glen) {
+            // a/b vs a/b/c
+            std::cmp::Ordering::Greater => Ok(None),
+            // a/b/c vs a/b/c
+            std::cmp::Ordering::Equal => Ok(Some((trimmed_pattern1, ""))),
+            // a/b/c vs a/b
+            #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
+            std::cmp::Ordering::Less => Ok(Some((trimmed_pattern1, &glob_pattern[(trimmed_pattern1.len()+1) .. ]))),
+        }, |ix| if shv_path_glen > pattern1_glen {
+            // a/b/** vs a/b/c
+            #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
+            Ok(Some((&glob_pattern[0 .. (ix+2)], &glob_pattern[ix ..])))
+        } else {
+            // a/b/c/** vs a/b/c
+            // a/b/c/d/** vs a/b/c
+            #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
+            Ok(Some((trimmed_pattern1, &glob_pattern[trimmed_pattern1.len()+1 ..])))
+        })
     } else {
         Ok(None)
     }
@@ -196,10 +182,10 @@ pub fn children_on_path<V>(mounts: &BTreeMap<String, V>, path: &str) -> Option<V
     let mut dir_exists = mounts.contains_key(path);
     for (key, _) in mounts.range(path.to_owned()..) {
         if key.starts_with(path) {
-            if path.is_empty() || (key.len() > path.len() && key.as_bytes()[path.len()] == (b'/')) {
+            if path.is_empty() || (key.len() > path.len() && *key.as_bytes().get(path.len()).expect("We check the len") == (b'/')) {
                 dir_exists = true;
                 let dir_rest_start = if path.is_empty() { 0 } else { path.len() + 1 };
-                let mut updirs = key[dir_rest_start..].split('/');
+                let mut updirs = key.get(dir_rest_start..).expect("We check the bounds").split('/');
                 if let Some(dir) = updirs.next()
                     && !dir.is_empty() && !unique_dirs.contains(dir) {
                         dirs.push(dir.to_string());
@@ -228,7 +214,7 @@ impl<V> StringMapView<V> for BTreeMap<String, V> {
     }
 }
 
-impl<V> StringMapView<V> for HashMap<String, V> {
+impl<V, S: std::hash::BuildHasher> StringMapView<V> for HashMap<String, V, S> {
     fn contains_key_(&self, key: &str) -> bool {
         self.contains_key(key)
     }
@@ -247,6 +233,7 @@ pub fn find_longest_path_prefix<'a, V>(
         if path.is_empty() {
             break;
         }
+        #[expect(clippy::string_slice, reason = "We expect UTF-8 strings")]
         if let Some(slash_ix) = path.rfind('/') {
             path = &shv_path[..slash_ix];
             rest = &shv_path[(slash_ix + 1)..];
@@ -262,11 +249,16 @@ pub fn find_longest_path_prefix<'a, V>(
 mod tests {
     use std::collections::BTreeMap;
 
+    use log::error;
+
     use crate::util::{glob_len, left_glob, split_glob_on_match, starts_with_path, strip_prefix_path};
     fn init_log() {
-        let _ = env_logger::builder()
+        env_logger::builder()
             // .filter(None, LevelFilter::Debug)
-            .is_test(true).try_init();
+            .is_test(true)
+            .try_init()
+            .inspect_err(|err| error!("Logger didn't work: {err}"))
+            .ok();
     }
 
     #[test]
@@ -374,6 +366,7 @@ mod tests {
 
     #[test]
     fn ls_mounts() {
+        #[expect(clippy::zero_sized_map_values, reason = "Fine for tests, and it can't be a Set")]
         let mut mounts = BTreeMap::new();
         mounts.insert(".broker".into(), ());
         mounts.insert(".broker/client/1".into(), ());

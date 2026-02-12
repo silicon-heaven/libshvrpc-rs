@@ -39,7 +39,7 @@ enum DataChangeMetaTag {
 }
 
 pub fn meta_value<I: shvproto::metamap::GetIndex>(rv: &RpcValue, key: I) -> Option<&RpcValue> {
-    rv.meta.as_ref().and_then(|meta| meta.get(key))
+    rv.meta.as_ref()?.get(key)
 }
 
 pub fn is_data_change(rv: &RpcValue) -> bool {
@@ -60,23 +60,23 @@ impl From<RpcValue> for DataChange {
                 value,
                 date_time: None,
                 short_time: None,
-                value_flags: Default::default(),
+                value_flags: ValueFlags::default(),
             }
         }
 
         let date_time = meta_value(&value, DataChangeMetaTag::DateTime)
-            .and_then(|v| v.to_datetime());
+            .and_then(RpcValue::to_datetime);
         let short_time = meta_value(&value, DataChangeMetaTag::ShortTime)
-            .map(|v| v.as_i32());
+            .map(RpcValue::as_i32);
         let value_flags = meta_value(&value, DataChangeMetaTag::ValueFlags)
             .map(|v| ValueFlags::from_bits_retain(v.as_u64())).unwrap_or_default();
 
         let unpacked_value = if let shvproto::Value::List(lst) = &value.value &&
-            lst.len() == 1 &&
-            lst[0].meta.as_ref().is_some_and(|meta| !meta.is_empty()) &&
+            let [single_element] = lst.as_slice() &&
+            single_element.meta.as_ref().is_some_and(|meta| !meta.is_empty()) &&
             value.meta.as_ref().is_none_or(|meta| meta.get(DataChangeMetaTag::SpecialListValue).is_none())
         {
-            lst[0].clone()
+            single_element.clone()
         } else {
             RpcValue {
                 meta: None,
@@ -97,8 +97,8 @@ impl From<DataChange> for RpcValue {
         let mut res = if data_change.value.meta.as_ref().is_none_or(|meta| meta.is_empty()) {
             let val = data_change.value.value.clone();
             if let shvproto::Value::List(lst) = &val &&
-                lst.len() == 1 &&
-                lst[0].meta.as_ref().is_some_and(|meta| !meta.is_empty()) {
+                let [single_element] = lst.as_slice() &&
+                single_element.meta.as_ref().is_some_and(|meta| !meta.is_empty()) {
                     let mut mm = shvproto::MetaMap::new();
                     mm.insert(DataChangeMetaTag::SpecialListValue as usize, true.into());
                     RpcValue::new(val, Some(mm))

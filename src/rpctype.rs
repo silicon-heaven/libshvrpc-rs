@@ -1,6 +1,7 @@
 pub enum Tag {
     MetaTypeId = 1,
     MetaTypeNameSpaceId,
+    #[expect(clippy::upper_case_acronyms, reason = "We want this to look special")]
     USER = 8
 }
 

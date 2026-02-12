@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncReadExt};
-use log::{*};
+use log::{log, log_enabled, Level};
 use crate::rpcframe::{rpcmsg_log_length_threshold, Protocol, RpcFrame};
 use shvproto::{ChainPackWriter, MetaMap, Reader, RpcValue, Writer};
 use crate::{RpcMessage, RpcMessageMetaTags};
@@ -18,16 +18,18 @@ pub enum ReceiveFrameError {
 }
 
 pub fn try_chainpack_buf_to_meta(buf: &[u8]) -> Option<shvproto::MetaMap> {
-    if buf.first().is_none_or(|first_byte| *first_byte != crate::rpcframe::Protocol::ChainPack as u8) {
+    const PROTOCOL_CHAINPACK: u8 = crate::rpcframe::Protocol::ChainPack as _;
+    let [PROTOCOL_CHAINPACK, rest @ ..] = buf else {
         return None
-    }
-    let mut buffrd = std::io::BufReader::new(&buf[1..]);
+    };
+
+    let mut buffrd = std::io::BufReader::new(rest);
     let mut rd = shvproto::ChainPackReader::new(&mut buffrd);
     rd.try_read_meta().ok().flatten()
 }
 
 pub(crate) fn attach_meta_to_timeout_error(err: ReceiveFrameError, data: &[u8]) -> ReceiveFrameError {
-    if let ReceiveFrameError::Timeout(None) = err {
+    if matches!(err, ReceiveFrameError::Timeout(None)) {
         ReceiveFrameError::Timeout(try_chainpack_buf_to_meta(data))
     } else {
         err
@@ -69,7 +71,7 @@ impl RawData {
         }
     }
     pub(crate) fn bytes_available(&self) -> usize {
-        assert!(self.length >= self.consumed);
+        assert!(self.length >= self.consumed, "Length must be more than consumed");
         self.length - self.consumed
     }
     pub(crate) fn is_empty(&self) -> bool {
@@ -208,7 +210,7 @@ fn log_data(data: &[u8], prompt: &str) {
         "".into()
     };
     let log_length = log_length_threshold.min(data.len());
-    log!(target: "RpcData", Level::Debug, "{prompt}{trimmed_at} -------------------------\n{}", hex_dump(&data[0 .. log_length]));
+    log!(target: "RpcData", Level::Debug, "{prompt}{trimmed_at} -------------------------\n{}", hex_dump(data.get(0 .. log_length).expect("Data out of range")));
 }
 
 #[cfg(test)]

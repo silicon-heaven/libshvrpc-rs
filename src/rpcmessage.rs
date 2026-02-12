@@ -1,6 +1,6 @@
 use crate::metamethod::AccessLevel;
 use shvproto::{RpcValue, Value};
-use shvproto::metamap::*;
+use shvproto::metamap::{MetaMap, GetIndex};
 use shvproto::rpcvalue::{IMap, List};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::fmt;
@@ -33,6 +33,7 @@ pub enum Tag {
     Source = 19,
     Repeat = 20,
     Part = 21,
+    #[expect(clippy::upper_case_acronyms, reason = "We want this to look special")]
     MAX
 }
 pub enum Key {
@@ -83,13 +84,13 @@ impl<'a> Response<'a> {
     pub fn success(&self) -> Option<&'a RpcValue> {
         match self {
             Response::Success(rpc_value) => Some(rpc_value),
-            _ => None,
+            Response::Delay(_) => None,
         }
     }
     pub fn delay(&self) -> Option<f64> {
         match self {
             Response::Delay(progress) => Some(*progress),
-            _ => None,
+            Response::Success(_) => None,
         }
     }
 }
@@ -133,6 +134,7 @@ impl RpcMessage {
     pub fn set_param(&mut self, rv: impl Into<RpcValue>) -> &mut Self {
         self.set_param_opt(Some(rv))
     }
+    #[must_use]
     pub fn with_param(mut self, param: impl Into<RpcValue>) -> Self {
         self.set_param_opt(Some(param));
         self
@@ -141,8 +143,7 @@ impl RpcMessage {
         self.set_ival(Key::Params, rv)
     }
     pub fn abort(&self) -> Option<AbortParam> {
-        self.ival(Key::Abort as i32)
-            .and_then(|v| v.try_into().ok())
+        self.ival(Key::Abort as i32)?.try_into().ok()
     }
     pub fn set_abort(&mut self, param: AbortParam) -> &mut Self {
         self.set_ival(Key::Abort, Some(param))
@@ -151,7 +152,7 @@ impl RpcMessage {
     pub fn response(&self) -> Result<Response<'_>, RpcError> {
         if let Some(err) = self.ival(Key::Error as i32) {
             return Err(RpcError::from_rpcvalue(err)
-                .unwrap_or(RpcError {
+                .unwrap_or_else(|| RpcError {
                     code: USER_ERROR_CODE_DEFAULT.into(),
                     message: "Cannot parse 'error' key found in RPC response.".to_string(),
                 }));
@@ -175,7 +176,7 @@ impl RpcMessage {
         self.response().err()
     }
     pub fn set_error(&mut self, err: RpcError) -> &mut Self {
-        self.set_ival(Key::Error, Some(err.to_rpcvalue()))
+        self.set_ival(Key::Error, Some(err.into_rpcvalue()))
     }
     pub fn is_success(&self) -> bool {
         matches!(self.response(), Ok(Response::Success(_)))
@@ -217,7 +218,7 @@ impl RpcMessage {
         match rv {
             Some(rv) => { mm.insert(key, rv.into()); }
             None => { mm.remove(key); }
-        };
+        }
         self
     }
     fn ival(&self, key: i32) -> Option<&RpcValue> {
@@ -227,6 +228,7 @@ impl RpcMessage {
         None
     }
     fn set_ival(&mut self, key: Key, rv: Option<impl Into<RpcValue>>) -> &mut Self {
+        #[expect(clippy::panic, reason = "It's more of a logic error, but it's alright for now")]
         if let Value::IMap(m) = &mut self.0.value {
             match rv {
                 Some(rv) => m.insert(key as i32, rv.into()),
@@ -295,7 +297,7 @@ pub trait RpcMessageMetaTags {
     }
 
     fn request_id(&self) -> Option<RqId> {
-        self.tag(Tag::RequestId as i32).map(|rv| rv.as_i64())
+        self.tag(Tag::RequestId as i32).map(RpcValue::as_i64)
     }
     fn try_request_id(&self) -> crate::Result<RqId> {
         self.request_id().ok_or_else(|| "Request id not exists.".into())
@@ -325,10 +327,10 @@ pub trait RpcMessageMetaTags {
         self.tag(Tag::AccessLevel as i32)
             .map(RpcValue::as_i32)
             .or_else(|| self.tag(Tag::Access as i32)
-                     .map(RpcValue::as_str)
-                     .and_then(|s| s.split(',')
-                               .find_map(AccessLevel::from_str)
-                               .map(|v| v as i32)))
+                     .map(RpcValue::as_str)?
+                     .split(',')
+                     .find_map(AccessLevel::from_str)
+                     .map(|v| v as i32))
     }
     fn set_access_level(&mut self, grant: AccessLevel) -> &mut Self::Target {
         self.set_tag(Tag::Access as i32, Some(RpcValue::from(grant.as_str())));
@@ -356,8 +358,8 @@ pub trait RpcMessageMetaTags {
         if ids.is_empty() {
             return self.set_tag(Tag::CallerIds as i32, None::<()>);
         }
-        if ids.len() == 1 {
-            return self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(ids[0] as PeerId)));
+        if let &[single_id] = ids {
+            return self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(single_id as PeerId)));
         }
         let lst: List = ids.iter().map(|v| RpcValue::from(*v)).collect();
         self.set_tag(Tag::CallerIds as i32, Some(RpcValue::from(lst)))
@@ -502,13 +504,13 @@ impl TryFrom<i32> for RpcErrorCodeKind {
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         RpcErrorCode::try_from(value)
             .map(Self::RpcError)
-            .or_else(|_| u32::try_from(value).map(Self::UserError))
+            .or_else(|()| u32::try_from(value).map(Self::UserError))
     }
 }
 
 impl From<u32> for RpcErrorCodeKind {
     fn from(value: u32) -> Self {
-        RpcErrorCode::try_from(value as i32).map_or_else(|_| Self::UserError(value), RpcErrorCodeKind::from)
+        RpcErrorCode::try_from(value.cast_signed()).map_or_else(|()| Self::UserError(value), RpcErrorCodeKind::from)
     }
 }
 
@@ -539,12 +541,8 @@ impl RpcError {
     pub fn from_rpcvalue(rv: &RpcValue) -> Option<Self> {
         if rv.is_imap() {
             let m = rv.as_imap();
-            let code = m.get(&(RpcErrorKey::Code as i32)).map(RpcValue::as_u32).unwrap_or(USER_ERROR_CODE_DEFAULT);
-            let msg = if let Some(msg) = m.get(&(RpcErrorKey::Message as i32)) {
-                msg.as_str().to_string()
-            } else {
-                "".to_string()
-            };
+            let code = m.get(&(RpcErrorKey::Code as i32)).map_or(USER_ERROR_CODE_DEFAULT, RpcValue::as_u32);
+            let msg = m.get(&(RpcErrorKey::Message as i32)).map_or_else(|| "".to_string(), |msg| msg.as_str().to_string());
             Some(RpcError {
                 code: code.into(),
                 message: msg,
@@ -554,8 +552,12 @@ impl RpcError {
         }
     }
     pub fn to_rpcvalue(&self) -> RpcValue {
+        self.clone().into_rpcvalue()
+    }
+
+    pub fn into_rpcvalue(self) -> RpcValue {
         let mut m = IMap::new();
-        m.insert(RpcErrorKey::Code as i32, RpcValue::from(u32::from(self.code) as i32));
+        m.insert(RpcErrorKey::Code as i32, RpcValue::from(u32::from(self.code).cast_signed()));
         m.insert(RpcErrorKey::Message as i32, RpcValue::from(&self.message));
         RpcValue::from(m)
     }

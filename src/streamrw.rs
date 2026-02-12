@@ -5,7 +5,7 @@ use crate::rpcframe::{Protocol, RpcFrame};
 use crate::rpcmessage::PeerId;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use log::*;
+use log::{log_enabled, Level};
 use shvproto::reader::ReadErrorReason;
 use shvproto::{ChainPackReader, ChainPackWriter, ReadError};
 use std::cmp::min;
@@ -28,11 +28,13 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
             frame_size_limit: DEFAULT_FRAME_SIZE_LIMIT,
         }
     }
+    #[must_use]
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self
     }
 
+    #[must_use]
     pub fn with_frame_size_limit(mut self, frame_size_limit: usize) -> Self {
         self.frame_size_limit = frame_size_limit;
         self
@@ -43,14 +45,13 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
             read_raw_data(&mut self.reader, &mut self.raw_data, false).await?;
         }
         let n = min(count, self.raw_data.bytes_available());
-        let data = &self.raw_data.data[self.raw_data.consumed..self.raw_data.consumed + n];
+        let data = self.raw_data.data.get(self.raw_data.consumed..self.raw_data.consumed + n).expect("We should have enough data");
         self.raw_data.consumed += n;
-        assert!(self.raw_data.consumed <= self.raw_data.length);
+        assert!(self.raw_data.consumed <= self.raw_data.length, "Length must be more than consumed");
         Ok(data)
     }
     async fn get_raw_byte(&mut self) -> Result<u8, ReceiveFrameError> {
-        let data = self.get_raw_bytes(1).await?;
-        Ok(data[0])
+        Ok(*self.get_raw_bytes(1).await?.first().expect("asd"))
     }
     async fn get_frame_bytes_impl(&mut self) -> Result<Vec<u8>, ReceiveFrameError> {
         let mut lendata: Vec<u8> = vec![];
@@ -59,11 +60,12 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
             let mut buffrd = BufReader::new(&lendata[..]);
             let mut rd = ChainPackReader::new(&mut buffrd);
             match rd.read_uint_data() {
+                #[expect(clippy::cast_possible_truncation, reason = "We expect 64-bit platform")]
                 Ok(len) => break len as usize,
                 Err(err) => {
                     let ReadError { reason, .. } = err;
                     match reason {
-                        ReadErrorReason::UnexpectedEndOfStream => continue,
+                        ReadErrorReason::UnexpectedEndOfStream => {},
                         ReadErrorReason::InvalidCharacter => {
                             return Err(ReceiveFrameError::FramingError(
                                 "Cannot read frame length, invalid byte received".into()
@@ -72,7 +74,7 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
                         ReadErrorReason::NumericValueOverflow => unreachable!("ChainPackReader::read_uint_data never returns NumericOverflow"),
                     }
                 }
-            };
+            }
         };
         if frame_len == 0 {
             return Err(ReceiveFrameError::FramingError("Frame length cannot be 0.".into()))
@@ -81,12 +83,12 @@ impl<R: AsyncRead + Unpin + Send> StreamFrameReader<R> {
         let mut data = Vec::with_capacity(bytes_to_read);
         while bytes_to_read > 0 {
             let bytes = self.get_raw_bytes(bytes_to_read).await.map_err(|err| attach_meta_to_timeout_error(err, &data))?;
-            assert!(!bytes.is_empty()); // get_raw_bytes() never returns 0
-            assert!(bytes.len() <= bytes_to_read);
+            assert!(!bytes.is_empty(), "get_raw_bytes() never returns 0");
+            assert!(bytes.len() <= bytes_to_read, "We can't get more bytes than bytes_to_read");
             let first_chunk = data.is_empty();
             if first_chunk {
-                let protocol = bytes[0];
-                if protocol > Protocol::ChainPack as u8 {
+                let protocol = bytes.first().expect("Bytes is not empty because get_raw_bytes never returns an empty slice");
+                if *protocol > Protocol::ChainPack as u8 {
                     return Err(ReceiveFrameError::FramingError(format!("Invalid protocol type received: {protocol}")))
                 }
             }
@@ -129,6 +131,7 @@ impl<W: AsyncWrite + Unpin + Send> StreamFrameWriter<W> {
     pub fn new(writer: W) -> Self {
         Self { peer_id: 0, writer }
     }
+    #[must_use]
     pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
         self.peer_id = peer_id;
         self
@@ -168,6 +171,7 @@ impl<W: AsyncWrite + Unpin + Send> FrameWriter for StreamFrameWriter<W> {
 #[cfg(test)]
 mod test {
     use log::debug;
+    use log::error;
     use shvproto::util::{hex_dump};
     use super::*;
     use crate::framerw::test::from_hex;
@@ -179,10 +183,12 @@ mod test {
     use smol_macros::test;
 
     fn init_log() {
-        let _ = env_logger::builder()
+        env_logger::builder()
             //.filter(None, LevelFilter::Debug)
             .is_test(true)
-            .try_init();
+            .try_init()
+            .inspect_err(|err| error!("Logger didn't work: {err}"))
+            .ok();
     }
     async fn send_frame_to_vector(frame: &RpcFrame) -> Vec<u8> {
         let mut buff: Vec<u8> = vec![];
@@ -316,7 +322,7 @@ mod test {
                 data[1..2].to_vec(),
                 data[2..meta_start].to_vec(),
                 data[meta_start..meta_end].to_vec(),
-                data[meta_end..data1_len + 1].to_vec(),
+                data[meta_end..=data1_len].to_vec(),
                 data[data1_len + 1..].to_vec(),
             ],
         ] {

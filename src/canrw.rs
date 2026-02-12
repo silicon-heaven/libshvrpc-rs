@@ -73,13 +73,13 @@ impl ShvCanId {
         let mut id: u16 = 0;
         id |= SHVCAN_MASK;
         if self.first_prio  { id |= 1 << 8; }
-        id |= (self.device_addr as u16) & 0xFF;
+        id |= u16::from(self.device_addr) & 0xFF;
         id & 0x7FF
     }
 
     pub fn from_raw_id(raw: u16) -> Result<Self, ShvCanParseError> {
         if raw > 0x7FF {
-            return Err(ShvCanParseError::InvalidCanId(raw as u32));
+            return Err(ShvCanParseError::InvalidCanId(u32::from(raw)));
         }
         if raw & SHVCAN_MASK != SHVCAN_MASK {
             return Err(ShvCanParseError::Malformed("Not a SHV CAN frame".into()));
@@ -196,7 +196,7 @@ impl TryFrom<&DataFrame> for CanFdFrame {
             device_addr: frame.header.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvCanParseError::InvalidCanId(id as u32))?;
+            .ok_or_else(|| ShvCanParseError::InvalidCanId(u32::from(id)))?;
         let data = [&[frame.header.dst, frame.counter], frame.payload.as_slice()].concat();
         CanFdFrame::with_flags(can_id, &data, FdFlags::BRS | FdFlags::FDF)
             .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build a Data frame".into()))
@@ -236,7 +236,7 @@ impl TryFrom<&AckFrame> for CanFdFrame {
             device_addr: frame.header.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvCanParseError::InvalidCanId(id as u32))?;
+            .ok_or_else(|| ShvCanParseError::InvalidCanId(u32::from(id)))?;
         let data = &[frame.header.dst, frame.counter];
         CanFdFrame::with_flags(can_id, data, FdFlags::BRS | FdFlags::FDF)
             .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build an ACK frame".into()))
@@ -268,7 +268,7 @@ impl TryFrom<&TerminateFrame> for CanFdFrame {
             device_addr: frame.header.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvCanParseError::InvalidCanId(id as u32))?;
+            .ok_or_else(|| ShvCanParseError::InvalidCanId(u32::from(id)))?;
         let data = &[frame.header.dst];
         CanFdFrame::with_flags(can_id, data, FdFlags::BRS | FdFlags::FDF)
             .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build a Terminate frame".into()))
@@ -300,7 +300,7 @@ impl TryFrom<RemoteFrame> for CanRemoteFrame {
             device_addr: frame.src
         }.to_raw_id();
         let can_id = CanId::standard(id)
-            .ok_or(ShvCanParseError::InvalidCanId(id as u32))?;
+            .ok_or_else(|| ShvCanParseError::InvalidCanId(u32::from(id)))?;
         CanRemoteFrame::new_remote(can_id, u8::from(frame.kind) as usize)
             .ok_or_else(|| ShvCanParseError::FrameCreation("Cannot build an RTR frame".into()))
     }
@@ -322,28 +322,27 @@ impl TryFrom<&CanFdFrame> for ShvCanFrame {
     type Error = ShvCanParseError;
 
     fn try_from(frame: &CanFdFrame) -> Result<Self, Self::Error> {
+        #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
         let shv_can_id = ShvCanId::from_raw_id(frame.raw_id() as u16)?;
         let src = shv_can_id.device_addr;
         let data = frame.data();
 
-        if data.is_empty() {
+        let &[dst, ref rest @ ..] = data else {
             return Err(ShvCanParseError::DataTooShort);
-        }
+        };
 
-        let dst = data[0];
         let header = DataFrameHeader {
             src,
             dst,
             first: shv_can_id.first_prio
         };
 
-        match data.len() {
-            1 => Ok(ShvCanFrame::Terminate(TerminateFrame { header })),
-            2 => Ok(ShvCanFrame::Ack(AckFrame { header, counter: data[1] })),
-            _ => {
-                let counter = data[1];
+        match *rest {
+            [] => Ok(ShvCanFrame::Terminate(TerminateFrame { header })),
+            [counter] => Ok(ShvCanFrame::Ack(AckFrame { header, counter })),
+            [counter, ref payload @ ..] => {
                 let is_last_frame = counter & 0x80 != 0;
-                let mut payload = data[2..].to_vec();
+                let mut payload = payload.to_vec();
                 // Trim zero bytes of last frames with DLC > 8
                 if is_last_frame && payload.len() > 8 {
                     trim_trailing_zeros(&mut payload);
@@ -358,8 +357,10 @@ impl TryFrom<&CanRemoteFrame> for RemoteFrame {
     type Error = ShvCanParseError;
 
     fn try_from(frame: &CanRemoteFrame) -> Result<Self, Self::Error> {
+        #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
         let shv_can_id = ShvCanId::from_raw_id(frame.raw_id() as u16)?;
         let src = shv_can_id.device_addr;
+        #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
         let kind = RtrKind::from(frame.dlc() as u8);
         Ok(RemoteFrame { src, kind })
     }
@@ -390,6 +391,7 @@ where
         }
     }
 
+    #[must_use]
     pub fn with_frame_size_limit(mut self, limit: usize) -> Self {
         self.frame_size_limit = limit;
         self
@@ -429,7 +431,7 @@ where
 
                 if frame.header.first {
                     break frame;
-                };
+                }
             };
 
             'send_ack: loop {
@@ -471,7 +473,7 @@ where
                         .next()
                         .timeout(futures_time::time::Duration::from_secs(5))
                         .await
-                        .map_err(|_| ReceiveFrameError::Timeout(try_chainpack_buf_to_meta(&res)))
+                        .map_err(|_err| ReceiveFrameError::Timeout(try_chainpack_buf_to_meta(&res)))
                         .and_then(|opt| opt.ok_or_else(|| ReceiveFrameError::StreamError("Session terminated".into())))?;
 
                     // If the frame is a first frame, start over from sending the ACK, dropping the data fetched so far.
@@ -522,11 +524,13 @@ where
         }
     }
 
+    #[must_use]
     pub fn with_max_send_retries(mut self, retries_count: u8) -> Self {
         self.max_send_retries = retries_count;
         self
     }
 
+    #[must_use]
     pub fn with_delay_between_retries(mut self, delay: Duration) -> Self {
         self.delay_between_retries = delay;
         self
@@ -556,6 +560,7 @@ where
         self.start_frame_counter = start_frame_counter.overflowing_add(1).0;
 
         let to_frame_counter = |frame_idx: usize| {
+            #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
             let val = start_frame_counter.overflowing_add(frame_idx as u8).0 & 0x7f;
             if frame_idx == frame_count - 1 {
                 val | 0x80
@@ -564,7 +569,7 @@ where
             }
         };
 
-        let mut bytes = [protocol].into_iter().chain(meta).chain(data.iter().copied());
+        let mut bytes = std::iter::once(protocol).chain(meta).chain(data.iter().copied());
 
         // Send the first frame and wait for the ACK
         let frame_payload = bytes.by_ref().take(MAX_PAYLOAD_SIZE).collect::<Vec<_>>();
@@ -576,7 +581,7 @@ where
                 .frame_writer
                 .send(DataFrame::new(self.device_addr, self.peer_addr, frame_counter, true, &frame_payload))
                 .await
-                .map_err(|_| "Session terminated")?;
+                .map_err(|_err| "Session terminated")?;
 
             let ack_frame_or_timeout = self
                 .ack_reader
@@ -587,9 +592,8 @@ where
             let Ok(ack_frame) = ack_frame_or_timeout else {
                 if retries_count == MAX_TIMEOUT_RETRANSMISSIONS {
                     return Err(format!("Frame send timed out while waiting for ACK (frame counter: {frame_counter})").into());
-                } else {
-                    continue;
                 }
+                continue;
             };
 
             let ack_frame = ack_frame.ok_or("Session terminated while waiting for ACK")?;
@@ -608,7 +612,7 @@ where
                 .frame_writer
                 .send(DataFrame::new(self.device_addr, self.peer_addr, to_frame_counter(frame_idx), false, &frame_payload))
                 .await
-                .map_err(|_| "Session terminated")?;
+                .map_err(|_err| "Session terminated")?;
         }
         Ok(())
     }
@@ -656,6 +660,7 @@ mod tests {
                 parsed,
                 ShvCanFrame::Terminate(TerminateFrame {
                     header: DataFrameHeader {
+                        #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
                         src: CAN_ID as u8,
                         dst: 42,
                         first: is_first_frame(CAN_ID),
@@ -672,6 +677,7 @@ mod tests {
                 parsed,
                 ShvCanFrame::Ack(AckFrame {
                     header: DataFrameHeader {
+                        #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
                         src: CAN_ID as u8,
                         dst: 7,
                         first: is_first_frame(CAN_ID),
@@ -689,6 +695,7 @@ mod tests {
                 parsed,
                 ShvCanFrame::Data(DataFrame {
                     header: DataFrameHeader {
+                        #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
                         src: CAN_ID as u8,
                         dst: 1,
                         first: is_first_frame(CAN_ID),
@@ -708,6 +715,7 @@ mod tests {
                 parsed,
                 ShvCanFrame::Data(DataFrame {
                     header: DataFrameHeader {
+                        #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
                         src: CAN_ID as u8,
                         dst: 1,
                         first: is_first_frame(CAN_ID),
@@ -739,7 +747,7 @@ mod tests {
             ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter)).unwrap();
         }.fuse());
 
-        let (_, sender_res) = join(receiver, wr.send_reset_session()).await;
+        let ((), sender_res) = join(receiver, wr.send_reset_session()).await;
         assert!(sender_res.is_ok());
     }
 
@@ -776,7 +784,7 @@ mod tests {
             ack_tx.unbounded_send(AckFrame::new(data_frame.header.dst, data_frame.header.src, data_frame.counter)).unwrap();
         }.fuse());
 
-        let (_, sender_res) = join(receiver, wr.send_reset_session()).await;
+        let ((), sender_res) = join(receiver, wr.send_reset_session()).await;
         assert!(sender_res.is_ok());
     }
 
@@ -802,7 +810,7 @@ mod tests {
             }
         }.fuse());
 
-        let (_, sender_res) = join(receiver, wr.send_reset_session()).await;
+        let ((), sender_res) = join(receiver, wr.send_reset_session()).await;
         assert!(sender_res.is_err());
     }
 
@@ -833,6 +841,7 @@ mod tests {
                     assert_eq!(data_frame.header.src, DEVICE_ADDR);
                     assert_eq!(data_frame.header.dst, PEER_ADDR);
                     assert_eq!(data_frame.header.first, frame_count == 0);
+                    #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
                     if data_frame.header.first {
                         start_counter = data_frame.counter & 0x7f;
                         ack_tx.unbounded_send(AckFrame::new(
@@ -903,6 +912,7 @@ mod tests {
 
         let mut send_frames = pin!(async move {
             for (frame_idx, payload) in payloads.iter().copied().enumerate() {
+                #[expect(clippy::cast_possible_truncation, reason = "We don't care")]
                 let counter = frame_idx as u8 & 0x7f | if frame_idx == payloads.len() - 1 { 0x80 } else { 0 };
                 let frame = DataFrame::new(
                     PEER_ADDR,
@@ -927,7 +937,7 @@ mod tests {
 
         loop {
             futures::select! {
-                _ = send_frames => { }
+                () = send_frames => { }
                 res = read_fut => {
                     let received_rpc_frame = res.expect("Valid RpcFrame");
                     assert_eq!(rpc_frame, received_rpc_frame);
@@ -1005,7 +1015,7 @@ mod tests {
 
         loop {
             futures::select! {
-                _ = send_fut => { }
+                () = send_fut => { }
 
                 data_frame = frames_rx.select_next_some() => {
                     assert_eq!(data_frame.header.src, DEVICE_ADDR);
@@ -1082,6 +1092,7 @@ mod tests {
         const PEER_ADDR: u8 = 0x23;
         const DEVICE_ADDR: u8 = 0x01;
 
+        #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation, reason = "We expect 64bit usize")]
         let generate_frame = |idx| RpcMessage::create_request_with_id(idx, "foo/bar", "xyz")
             .with_param("abc".repeat(idx as usize * 100))
             .to_frame()
