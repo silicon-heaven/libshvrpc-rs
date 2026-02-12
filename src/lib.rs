@@ -19,6 +19,7 @@ pub mod journalrw;
 pub mod journalentry;
 #[cfg(feature = "journal")]
 pub mod datachange;
+pub mod typeinfo;
 
 pub use rpcmessage::{RpcMessage, RpcMessageMetaTags};
 pub use rpcframe::RpcFrame;
