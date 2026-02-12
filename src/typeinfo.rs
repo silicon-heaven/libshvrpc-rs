@@ -1006,6 +1006,34 @@ impl TypeInfo {
             _ => { }
         }
     }
+
+    pub fn types(&self) -> &BTreeMap<String, TypeDescription> {
+        &self.types
+    }
+
+    pub fn device_paths(&self) -> &BTreeMap<String, String> {
+        &self.device_paths
+    }
+
+    pub fn device_descriptions(&self) -> &BTreeMap<String, DeviceDescription> {
+        &self.device_descriptions
+    }
+
+    pub fn extra_tags(&self) -> &BTreeMap<String, RpcValue> {
+        &self.extra_tags
+    }
+
+    pub fn system_paths_roots(&self) -> &BTreeMap<String, String> {
+        &self.system_paths_roots
+    }
+
+    pub fn blacklisted_paths(&self) -> &BTreeMap<String, RpcValue> {
+        &self.blacklisted_paths
+    }
+
+    pub fn property_deviations(&self) -> &BTreeMap<String, PropertyDescription> {
+        &self.property_deviations
+    }
 }
 
 impl TryFrom<&RpcValue> for TypeInfo {
