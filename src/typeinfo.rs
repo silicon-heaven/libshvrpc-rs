@@ -814,6 +814,10 @@ impl DeviceDescription {
         let prop_name = prop_name.as_ref();
         self.properties.retain(|prop| prop.name() != prop_name);
     }
+
+    pub fn properties(&self) -> &[PropertyDescription] {
+        &self.properties
+    }
 }
 
 impl TryFrom<RpcValue> for DeviceDescription {
