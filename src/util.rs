@@ -80,10 +80,10 @@ pub fn login_from_url(url: &Url) -> (String, String) {
     let mut user = "".to_string();
     let mut password = "".to_string();
     for (key,val) in url.query_pairs() {
-        if key == "user" {
-            user = val.to_string();
-        } else if key == "password" {
-            password = val.to_string();
+        match key.as_str() {
+            "user" => user = val.to_string(),
+            "password" => password = val.to_string(),
+            unknown_param => log::warn!("Unsupported URL query param: {unknown_param}={val}"),
         }
     }
     if user.is_empty() {
