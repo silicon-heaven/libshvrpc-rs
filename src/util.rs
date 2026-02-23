@@ -79,15 +79,21 @@ pub fn strip_prefix_path<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
 pub struct LoginQueryParams {
     pub user: String,
     pub password: String,
+    pub token: String,
+    pub session: bool,
 }
 
 pub fn parse_query_params(url: &Url) -> LoginQueryParams {
     let mut user = "".to_string();
     let mut password = "".to_string();
+    let mut token = "".to_string();
+    let mut session = false;
     for (key,val) in url.query_pairs() {
-        match key.as_str() {
+        match key.as_ref() {
             "user" => user = val.to_string(),
             "password" => password = val.to_string(),
+            "token" => token = val.to_string(),
+            "session" => session = true,
             unknown_param => log::warn!("Unsupported URL query param: {unknown_param}={val}"),
         }
     }
@@ -101,6 +107,8 @@ pub fn parse_query_params(url: &Url) -> LoginQueryParams {
     LoginQueryParams {
         user,
         password,
+        token,
+        session,
     }
 }
 
