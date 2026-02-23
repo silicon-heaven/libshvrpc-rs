@@ -76,7 +76,12 @@ pub fn strip_prefix_path<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
     }
 }
 
-pub fn login_from_url(url: &Url) -> (String, String) {
+pub struct LoginQueryParams {
+    pub user: String,
+    pub password: String,
+}
+
+pub fn parse_query_params(url: &Url) -> LoginQueryParams {
     let mut user = "".to_string();
     let mut password = "".to_string();
     for (key,val) in url.query_pairs() {
@@ -92,7 +97,11 @@ pub fn login_from_url(url: &Url) -> (String, String) {
     if password.is_empty() {
         password = url.password().unwrap_or_default().to_string();
     }
-    (user, password)
+
+    LoginQueryParams {
+        user,
+        password,
+    }
 }
 
 pub fn glob_len(glob: &str) -> usize {
