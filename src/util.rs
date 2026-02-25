@@ -76,14 +76,25 @@ pub fn strip_prefix_path<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
     }
 }
 
-pub fn login_from_url(url: &Url) -> (String, String) {
+pub struct LoginQueryParams {
+    pub user: String,
+    pub password: String,
+    pub token: String,
+    pub session: bool,
+}
+
+pub fn parse_query_params(url: &Url) -> LoginQueryParams {
     let mut user = "".to_string();
     let mut password = "".to_string();
+    let mut token = "".to_string();
+    let mut session = false;
     for (key,val) in url.query_pairs() {
-        if key == "user" {
-            user = val.to_string();
-        } else if key == "password" {
-            password = val.to_string();
+        match key.as_ref() {
+            "user" => user = val.to_string(),
+            "password" => password = val.to_string(),
+            "token" => token = val.to_string(),
+            "session" => session = true,
+            unknown_param => log::warn!("Unsupported URL query param: {unknown_param}={val}"),
         }
     }
     if user.is_empty() {
@@ -92,7 +103,13 @@ pub fn login_from_url(url: &Url) -> (String, String) {
     if password.is_empty() {
         password = url.password().unwrap_or_default().to_string();
     }
-    (user, password)
+
+    LoginQueryParams {
+        user,
+        password,
+        token,
+        session,
+    }
 }
 
 pub fn glob_len(glob: &str) -> usize {

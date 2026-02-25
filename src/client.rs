@@ -18,12 +18,14 @@ use crate::rpcmessage::RpcMessageMetaTags;
 pub enum LoginType {
     Plain,
     Sha1,
+    Token,
 }
 impl LoginType {
     pub fn to_str(self) -> &'static str {
         match self {
             LoginType::Plain => "PLAIN",
             LoginType::Sha1 => "SHA1",
+            LoginType::Token => "TOKEN",
         }
     }
 }
@@ -37,11 +39,13 @@ impl LoginType {
 pub struct LoginParams {
     pub user: String,
     pub password: String,
+    pub token: String,
     pub login_type: LoginType,
     pub device_id: String,
     pub mount_point: String,
     pub heartbeat_interval: Duration,
     pub user_agent: String,
+    pub session: bool,
 }
 
 impl Default for LoginParams {
@@ -49,11 +53,13 @@ impl Default for LoginParams {
         LoginParams {
             user: "".to_string(),
             password: "".to_string(),
+            token: "".to_string(),
             login_type: LoginType::Sha1,
             device_id: "".to_string(),
             mount_point: "".to_string(),
             heartbeat_interval: Duration::from_mins(1),
             user_agent: "".to_string(),
+            session: false,
         }
     }
 }
@@ -62,12 +68,17 @@ impl From<LoginParams> for RpcValue {
     fn from(value: LoginParams) -> Self {
         let mut map = shvproto::Map::new();
         let mut login = shvproto::Map::new();
-        login.insert("user".into(), RpcValue::from(value.user));
-        login.insert("password".into(), RpcValue::from(value.password));
+        if !value.token.is_empty() {
+            login.insert("token".into(), RpcValue::from(value.token));
+        } else {
+            login.insert("user".into(), RpcValue::from(value.user));
+            login.insert("password".into(), RpcValue::from(value.password));
+        }
         login.insert("type".into(), RpcValue::from(value.login_type.to_str()));
         map.insert("login".into(), RpcValue::from(login));
         let mut options = shvproto::Map::new();
         options.insert("idleWatchDogTimeOut".into(), RpcValue::from((value.heartbeat_interval.as_secs() * 3).cast_signed()));
+
         let mut device = shvproto::Map::new();
         if !value.device_id.is_empty() {
             device.insert("deviceId".into(), RpcValue::from(value.device_id));
@@ -80,6 +91,11 @@ impl From<LoginParams> for RpcValue {
         if !value.user_agent.is_empty() {
             options.insert("userAgent".into(), RpcValue::from(value.user_agent));
         }
+
+        if value.session {
+            options.insert("session".into(), true.into());
+        }
+
         map.insert("options".into(), RpcValue::from(options));
         RpcValue::from(map)
     }
@@ -91,7 +107,7 @@ impl From<&LoginParams> for RpcValue {
     }
 }
 
-pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &mut (dyn FrameWriter + Send), login_params: &LoginParams, reset_session: bool) -> crate::Result<i32> {
+pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &mut (dyn FrameWriter + Send), login_params: &LoginParams, reset_session: bool) -> crate::Result<String> {
     async fn get_response(rqid: Option<RqId>, frame_reader: &mut (dyn FrameReader + Send)) -> crate::Result<Option<RpcMessage>> {
         let Some(rqid) = rqid else {
             return Err("BUG: request id should be set".into());
@@ -137,6 +153,7 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
         if matches!(login_params.login_type, LoginType::Sha1) {
             login_params.password = sha1_password_hash(login_params.password.as_bytes(), nonce.as_bytes());
         }
+        let session_requested = login_params.session;
         let rq = RpcMessage::new_request("", "login").with_param(login_params);
         let login_rq_id = rq.request_id();
         debug!("\t send login");
@@ -150,10 +167,17 @@ pub async fn login(frame_reader: &mut (dyn FrameReader + Send), frame_writer: &m
         let Ok(Response::Success(result)) = resp.response() else {
             return Err(format!("Login error: {}", resp.error().expect("An error message received")).into());
         };
-        match result.as_map().get("clientId") {
-            None => return Ok(0),
-            Some(client_id) => return Ok(client_id.as_i32()),
+
+        if session_requested {
+            let shvproto::Value::String(session_token) = &result.value else {
+                log::error!("A session token was requested, but none was returned from :login!");
+                return Ok("".into());
+            };
+
+            return Ok((**session_token).clone());
         }
+
+        return Ok("".into())
     }
 }
 
