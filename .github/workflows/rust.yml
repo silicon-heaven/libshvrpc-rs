@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Generate coverage
-        uses: silicon-heaven/rust-pycobertura-action@v4.0.1
+        uses: silicon-heaven/rust-pycobertura-action@v4.1.0
         with:
           project_name: libshvrpc
 
