@@ -128,6 +128,185 @@ where
     }
 }
 
+// Log3
+
+pub fn datetime_to_log3_filename(dt: shvproto::DateTime) -> String {
+    dt
+        .to_chrono_datetime()
+        .format("%Y-%m-%dT%H-%M-%S.log3")
+        .to_string()
+}
+
+#[repr(i32)]
+pub enum Log3Key {
+    Time = 1,
+    Path,
+    Signal,
+    Source,
+    Value,
+    AccessLevel,
+    UserId,
+    Repeat,
+}
+
+pub fn journal_entry_to_log3_imap(entry: JournalEntry) -> shvproto::IMap {
+    let time = match entry.epoch_msec {
+        ..=0 =>  None,
+        val => Some(shvproto::DateTime::from_epoch_msec(val)),
+    };
+    shvproto::make_imap!(
+        Log3Key::Time as _ => time,
+        Log3Key::Path as _ => entry.path,
+        Log3Key::Signal as _ => entry.signal,
+        Log3Key::Source as _ => entry.source,
+        Log3Key::Value as _ => entry.value,
+        Log3Key::AccessLevel as _ => entry.access_level,
+        Log3Key::UserId as _ => entry.user_id,
+        Log3Key::Repeat as _ => entry.repeat,
+    )
+}
+
+pub struct JournalWriterLog3<W> {
+    writer: W,
+}
+
+impl<W> JournalWriterLog3<W>
+where
+    W: AsyncWrite + Unpin,
+{
+    pub async fn new(mut writer: W) -> std::io::Result<Self> {
+        let header = RpcValue::from(shvproto::make_map!("version" => shvproto::Decimal::new(3, 0))).to_cpon() + "\n";
+        Self::write_bytes(&mut writer, header.as_bytes()).await?;
+        Ok(Self {
+            writer,
+        })
+    }
+
+    pub async fn append(&mut self, entry: JournalEntry) -> std::io::Result<()> {
+        let line = RpcValue::from(journal_entry_to_log3_imap(entry)).to_cpon() + "\n";
+        Self::write_bytes(&mut self.writer, line.as_bytes()).await
+    }
+
+    async fn write_bytes(writer: &mut W, bytes: &[u8]) -> std::io::Result<()> {
+        writer.write_all(bytes).await?;
+        writer.flush().await
+    }
+}
+
+pub struct JournalReaderLog3<R> {
+    lines: Lines<R>,
+    got_header: bool,
+}
+
+impl<R> JournalReaderLog3<R>
+where
+    R: AsyncBufRead + Unpin,
+{
+    pub fn new(reader: R) -> Self {
+        JournalReaderLog3 {
+            lines: reader.lines(),
+            got_header: false,
+        }
+    }
+}
+
+fn parse_journal_entry_log3(line: impl AsRef<str>) -> Result<JournalEntry, Box<dyn Error + Send + Sync>> {
+    let line = line.as_ref();
+
+    let entry: shvproto::IMap = RpcValue::from_cpon(line)
+        .map_err(|err| err.to_string())
+        .and_then(TryInto::try_into)
+        .map_err(|err| format!("Cannot parse a journal entry from line: `{line}`: {err}"))?;
+
+    let epoch_msec = entry
+        .get(&(Log3Key::Time as _))
+        .map_or(0, |v| v.as_datetime().epoch_msec());
+    let path = entry
+        .get(&(Log3Key::Path as _))
+        .map_or_else(String::new, |v| v.as_str().to_string());
+    let signal = entry
+        .get(&(Log3Key::Signal as _))
+        .map_or_else(|| SIG_CHNG.into(), |v| v.as_str().into());
+    let source = entry
+        .get(&(Log3Key::Source as _))
+        .map_or_else(|| METH_GET.into(), |v| v.as_str().into());
+    let value = entry
+        .get(&(Log3Key::Value as _))
+        .map_or_else(RpcValue::null, RpcValue::clone);
+    let access_level = entry
+        .get(&(Log3Key::AccessLevel as _))
+        .map_or(AccessLevel::Read as _, RpcValue::as_i32);
+    let user_id = entry
+        .get(&(Log3Key::UserId as _))
+        .and_then(|v| {
+            let user = v.as_str();
+            if user.is_empty() {
+                None
+            } else {
+                Some(user.to_string())
+            }
+        });
+    let repeat = entry
+        .get(&(Log3Key::Repeat as _))
+        .is_some_and(RpcValue::as_bool);
+    let provisional = entry
+        .get(&(Log3Key::Repeat as _))
+        .is_some_and(RpcValue::as_bool);
+
+    Ok(JournalEntry {
+        epoch_msec,
+        path,
+        signal,
+        source,
+        value,
+        access_level,
+        short_time: -1,
+        user_id,
+        repeat,
+        provisional,
+    })
+}
+
+impl<R> Stream for JournalReaderLog3<R>
+where
+    R: AsyncBufRead + Unpin,
+{
+    type Item = Result<JournalEntry, Box<dyn Error + Send + Sync>>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let lines = Pin::new(&mut self.lines);
+
+        match lines.poll_next(cx) {
+            Poll::Ready(Some(Ok(line))) if !self.got_header => {
+                let header_validation_res = RpcValue::from_cpon(&line)
+                    .map_err(|err| err.to_string())
+                    .and_then(TryInto::try_into)
+                    .and_then(|header: shvproto::Map| header
+                        .get("version")
+                        .cloned()
+                        .ok_or_else(|| "Missing version".into())
+                    )
+                    .and_then(|version|
+                        if version == shvproto::Decimal::new(3, 0).into() {
+                            Ok(())
+                        } else {
+                            Err(format!("Expected log version 3.0, have {version}"))
+                        }
+                    )
+                    .map_err(|err| format!("Wrong journal file header: `{line}`: {err}"));
+                if let Err(err) = header_validation_res {
+                    return Poll::Ready(Some(Err(err.into())))
+                }
+                self.got_header = true;
+                self.poll_next(cx)
+            }
+            Poll::Ready(Some(Ok(line))) => Poll::Ready(Some(parse_journal_entry_log3(&line))),
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(Box::new(e)))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
 
 // Reader of a result of SHV v2 `getLog`
 
@@ -629,7 +808,7 @@ mod tests {
     use smol_macros::{test, Executor};
 
     use crate::journalentry::JournalEntry;
-    use crate::journalrw::{matches_path_pattern, JournalReaderLog2, JournalWriterLog2, Log2Reader};
+    use crate::journalrw::{JournalReaderLog2, JournalReaderLog3, JournalWriterLog2, JournalWriterLog3, Log2Reader, matches_path_pattern};
 
     use super::{
         journal_entries_to_rpcvalue, parse_journal_entry_log2, Log2Header,
@@ -649,7 +828,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn journal_write_and_read(ex: &Executor<'_>) {
+    async fn journal_write_and_read_log2(ex: &Executor<'_>) {
         ex.spawn(async move {
             let entries = [
                 JournalEntry {
@@ -685,6 +864,53 @@ mod tests {
 
             let data = writer.writer.into_inner();
             let reader = JournalReaderLog2::new(Cursor::new(data));
+            let mut enumerated_reader = reader.enumerate();
+
+            while let Some((ix, result)) = enumerated_reader.next().await {
+                let entry = &entries[ix];
+                let entry2 = result.unwrap();
+                assert_eq!(entry, &entry2);
+            }
+        }).await;
+    }
+
+    #[apply(test!)]
+    async fn journal_write_and_read_log3(ex: &Executor<'_>) {
+        ex.spawn(async move {
+            let entries = [
+                JournalEntry {
+                    epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    path: "test/path".into(),
+                    signal: SIG_CHNG.into(),
+                    source: METH_GET.into(),
+                    value: 42.into(),
+                    access_level: AccessLevel::Read as _,
+                    short_time: -1,
+                    user_id: Some("user".into()),
+                    repeat: false,
+                    provisional: false,
+                },
+                JournalEntry {
+                    epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    path: "test/path2".into(),
+                    signal: SIG_CHNG.into(),
+                    source: METH_GET.into(),
+                    value: shvproto::make_map!("a" => 1, "b" => 2).into(),
+                    access_level: AccessLevel::Read as _,
+                    short_time: -1,
+                    user_id: None,
+                    repeat: true,
+                    provisional: true,
+                },
+            ];
+
+            let mut writer = JournalWriterLog3::new(Cursor::new(Vec::new())).await.unwrap();
+            for entry in &entries {
+                writer.append(entry.clone()).await.unwrap();
+            }
+
+            let data = writer.writer.into_inner();
+            let reader = JournalReaderLog3::new(Cursor::new(data));
             let mut enumerated_reader = reader.enumerate();
 
             while let Some((ix, result)) = enumerated_reader.next().await {
