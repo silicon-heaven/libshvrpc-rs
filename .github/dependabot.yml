@@ -22,7 +22,6 @@ updates:
       cargo-shv-major:
         patterns:
           - shvproto
-          - shvrpc
           - tungstenite
         update-types:
           - major
@@ -31,7 +30,6 @@ updates:
           - '*'
         exclude-patterns:
           - shvproto
-          - shvrpc
           - tungstenite
         update-types:
           - major
