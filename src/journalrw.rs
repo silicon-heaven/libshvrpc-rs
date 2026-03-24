@@ -34,9 +34,12 @@ fn parse_journal_entry_log2(line: &str) -> Result<JournalEntry, Box<dyn Error + 
     let value_flags = ValueFlags::from_bits_retain(parts_iter.next().unwrap_or_default().parse().unwrap_or(0));
     let user_id = parts_iter
         .next()
-        .map_or_else(|| Ok(RpcValue::null()), |user_id| RpcValue::from_cpon(user_id)
-            .map_err(|err| format!("Cannot parse user_id from CPON: `{user_id}` on line: {line}, error: {err}"))
-        )?;
+        .map_or_else(|| Ok(RpcValue::null()), |user_id| if user_id.is_empty() {
+            Ok(RpcValue::null())
+        } else {
+            RpcValue::from_cpon(user_id)
+                .map_err(|err| format!("Cannot parse user_id from CPON: `{user_id}` on line: {line}, error: {err}"))
+        })?;
 
     Ok(JournalEntry {
         epoch_msec,
@@ -125,7 +128,7 @@ where
                 }
                 value_flags.bits().to_string()
             },
-            entry.user_id.to_cpon(),
+            if entry.user_id.is_null() { "".into() } else { entry.user_id.to_cpon() },
         ].join(JOURNAL_ENTRIES_SEPARATOR) + "\n";
         self.writer.write_all(line.as_bytes()).await?;
         self.writer.flush().await
