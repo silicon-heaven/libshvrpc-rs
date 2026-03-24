@@ -147,6 +147,7 @@ pub enum Log3Key {
     AccessLevel,
     UserId,
     Repeat,
+    Provisional,
 }
 
 pub fn journal_entry_to_log3_imap(entry: JournalEntry) -> shvproto::IMap {
@@ -176,6 +177,9 @@ pub fn journal_entry_to_log3_imap(entry: JournalEntry) -> shvproto::IMap {
     }
     if entry.repeat {
         imap.insert(Log3Key::Repeat as _, entry.repeat.into());
+    }
+    if entry.provisional {
+        imap.insert(Log3Key::Provisional as _, entry.provisional.into());
     }
     imap
 }
@@ -264,7 +268,7 @@ fn parse_journal_entry_log3(line: impl AsRef<str>) -> Result<JournalEntry, Box<d
         .get(&(Log3Key::Repeat as _))
         .is_some_and(RpcValue::as_bool);
     let provisional = entry
-        .get(&(Log3Key::Repeat as _))
+        .get(&(Log3Key::Provisional as _))
         .is_some_and(RpcValue::as_bool);
 
     Ok(JournalEntry {
