@@ -154,16 +154,30 @@ pub fn journal_entry_to_log3_imap(entry: JournalEntry) -> shvproto::IMap {
         ..=0 =>  None,
         val => Some(shvproto::DateTime::from_epoch_msec(val)),
     };
-    shvproto::make_imap!(
-        Log3Key::Time as _ => time,
-        Log3Key::Path as _ => entry.path,
-        Log3Key::Signal as _ => entry.signal,
-        Log3Key::Source as _ => entry.source,
-        Log3Key::Value as _ => entry.value,
-        Log3Key::AccessLevel as _ => entry.access_level,
-        Log3Key::UserId as _ => entry.user_id,
-        Log3Key::Repeat as _ => entry.repeat,
-    )
+    let mut imap = shvproto::IMap::new();
+    imap.insert(Log3Key::Time as _, time.into());
+    if !entry.path.is_empty() {
+        imap.insert(Log3Key::Path as _, entry.path.into());
+    }
+    if entry.signal != SIG_CHNG {
+        imap.insert(Log3Key::Signal as _, entry.signal.into());
+    }
+    if entry.source != METH_GET {
+        imap.insert(Log3Key::Source as _, entry.source.into());
+    }
+    if !entry.value.is_null() {
+        imap.insert(Log3Key::Value as _, entry.value);
+    }
+    if entry.access_level != AccessLevel::Read as _ {
+        imap.insert(Log3Key::AccessLevel as _, entry.access_level.into());
+    }
+    if let Some(user_id) = entry.user_id && !user_id.is_empty() {
+        imap.insert(Log3Key::UserId as _, user_id.into());
+    }
+    if entry.repeat {
+        imap.insert(Log3Key::Repeat as _, entry.repeat.into());
+    }
+    imap
 }
 
 pub struct JournalWriterLog3<W> {
