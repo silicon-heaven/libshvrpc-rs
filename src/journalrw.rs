@@ -32,14 +32,7 @@ fn parse_journal_entry_log2(line: &str) -> Result<JournalEntry, Box<dyn Error + 
     let short_time = parts_iter.next().unwrap_or_default().parse().unwrap_or(-1);
     let domain = parts_iter.next();
     let value_flags = ValueFlags::from_bits_retain(parts_iter.next().unwrap_or_default().parse().unwrap_or(0));
-    let user_id = parts_iter
-        .next()
-        .map_or_else(|| Ok(RpcValue::null()), |user_id| if user_id.is_empty() {
-            Ok(RpcValue::null())
-        } else {
-            RpcValue::from_cpon(user_id)
-                .map_err(|err| format!("Cannot parse user_id from CPON: `{user_id}` on line: {line}, error: {err}"))
-        })?;
+    let user_id = parts_iter.next().map_or_else(String::new, String::from);
 
     Ok(JournalEntry {
         epoch_msec,
@@ -128,7 +121,7 @@ where
                 }
                 value_flags.bits().to_string()
             },
-            if entry.user_id.is_null() { "".into() } else { entry.user_id.to_cpon() },
+            entry.user_id.clone(),
         ].join(JOURNAL_ENTRIES_SEPARATOR) + "\n";
         self.writer.write_all(line.as_bytes()).await?;
         self.writer.flush().await
@@ -179,8 +172,8 @@ pub fn journal_entry_to_log3_imap(entry: JournalEntry) -> shvproto::IMap {
     if entry.access_level != AccessLevel::Read as _ {
         imap.insert(Log3Key::AccessLevel as _, entry.access_level.into());
     }
-    if !entry.user_id.is_null() {
-        imap.insert(Log3Key::UserId as _, entry.user_id);
+    if !entry.user_id.is_empty() {
+        imap.insert(Log3Key::UserId as _, entry.user_id.into());
     }
     if entry.repeat {
         imap.insert(Log3Key::Repeat as _, entry.repeat.into());
@@ -263,7 +256,7 @@ fn parse_journal_entry_log3(line: impl AsRef<str>) -> Result<JournalEntry, Box<d
         .map_or(AccessLevel::Read as _, RpcValue::as_i32);
     let user_id = entry
         .get(&(Log3Key::UserId as _))
-        .map_or_else(RpcValue::null, RpcValue::clone);
+        .map_or_else(String::new, |rv| rv.as_str().into());
     let repeat = entry
         .get(&(Log3Key::Repeat as _))
         .is_some_and(RpcValue::as_bool);
@@ -409,7 +402,7 @@ fn rpcvalue_to_journal_entry(entry: &RpcValue, paths_dict: &BTreeMap<i32, String
     };
     let value_flags = ValueFlags::from_bits_retain(value_flags);
 
-    let user_id = row.next().map_or_else(RpcValue::null, RpcValue::clone);
+    let user_id = row.next().map_or_else(String::new, |rv| rv.as_str().into());
 
     Ok(JournalEntry {
         epoch_msec: timestamp.epoch_msec(),
@@ -864,7 +857,7 @@ mod tests {
                     value: shvproto::make_map!("a" => 1, "b" => 2).into(),
                     access_level: AccessLevel::Read as _,
                     short_time: 123,
-                    user_id: ().into(),
+                    user_id: String::default(),
                     repeat: true,
                     provisional: true,
                 },
@@ -876,7 +869,7 @@ mod tests {
                     value: shvproto::make_map!("a" => 1, "b" => 2).into(),
                     access_level: AccessLevel::Read as _,
                     short_time: -1,
-                    user_id: shvproto::make_map!("userName" => "abc", "agent" => "xyz").into(),
+                    user_id: shvproto::RpcValue::from(shvproto::make_map!("userName" => "abc", "agent" => "xyz")).to_cpon(),
                     repeat: false,
                     provisional: true,
                 },
@@ -923,7 +916,7 @@ mod tests {
                     value: shvproto::make_map!("a" => 1, "b" => 2).into(),
                     access_level: AccessLevel::Read as _,
                     short_time: -1,
-                    user_id: ().into(),
+                    user_id: String::default(),
                     repeat: true,
                     provisional: true,
                 },
@@ -935,7 +928,7 @@ mod tests {
                     value: shvproto::make_map!("a" => 1, "b" => 2).into(),
                     access_level: AccessLevel::Read as _,
                     short_time: -1,
-                    user_id: shvproto::make_map!("userName" => "abc", "agent" => "xyz").into(),
+                    user_id: shvproto::RpcValue::from(shvproto::make_map!("userName" => "abc", "agent" => "xyz")).to_cpon(),
                     repeat: false,
                     provisional: true,
                 },
@@ -1048,7 +1041,7 @@ mod tests {
     fn parse_journal_entry_log2_variants() {
         // All fields present
         assert_eq!(parse_journal_entry_log2(
-                "2025-04-28T11:51:14.300Z\t\tsystem/status\t2u\t\tchng\t1").unwrap(),
+                "2025-04-28T11:51:14.300Z\t\tsystem/status\t2u\t\tchng\t1\tuser").unwrap(),
                 JournalEntry {
                     epoch_msec: shvproto::DateTime::from_iso_str("2025-04-28T11:51:14.300Z").unwrap().epoch_msec(),
                     path: "system/status".into(),
@@ -1057,7 +1050,7 @@ mod tests {
                     value: 2u64.into(),
                     access_level: AccessLevel::Read as i32,
                     short_time: -1,
-                    user_id: ().into(),
+                    user_id: "user".into(),
                     repeat: true,
                     provisional: false,
                 }
@@ -1073,7 +1066,7 @@ mod tests {
                     value: 2u64.into(),
                     access_level: AccessLevel::Read as i32,
                     short_time: -1,
-                    user_id: ().into(),
+                    user_id: String::default(),
                     repeat: true,
                     provisional: false,
                 }

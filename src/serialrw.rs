@@ -78,7 +78,7 @@ impl<R: AsyncRead + Unpin + Send> SerialFrameReader<R> {
             EESC => ESC,
             b => {
                 return Err(ReceiveFrameError::FramingError(format!(
-                    "Framing error, invalid escape byte {b:#02x}"
+                    "Framing error, invalid escape byte {b:#x}"
                 )));
             }
         };
@@ -484,7 +484,7 @@ mod test {
                 debug!("hex: {chunks:?}");
                 let mut rd = SerialFrameReader::new(crate::framerw::test::Chunks { chunks }).with_crc_check(true);
                 let frame = rd.receive_frame().await;
-                debug!("frame: {:?}", &frame);
+                debug!("frame: {frame:?}");
                 assert!(frame.is_ok());
             };
     }
@@ -514,7 +514,7 @@ mod test {
                 let mut rd = SerialFrameReader::new(buffrd).with_crc_check(with_crc);
                 for _ in 0 .. 3 {
                     let frame = rd.receive_frame().await;
-                    debug!("frame: {:?}", &frame);
+                    debug!("frame: {frame:?}");
                     assert!(frame.is_ok());
                 }
             }
@@ -543,7 +543,7 @@ mod test {
                     {
                         // should read first message with size equal to frame size limit
                         let frame = rd.receive_frame().await.unwrap();
-                        debug!("frame: {:?}", &frame);
+                        debug!("frame: {frame:?}");
                         assert_eq!(frame.to_rpcmesage().unwrap().param().unwrap().as_int(), 161);
                     }
                 }
@@ -555,7 +555,7 @@ mod test {
                     {
                         assert!(matches!(rd.receive_frame().await.unwrap_err(), ReceiveFrameError::FrameTooLarge(..)));
                         let frame = rd.receive_frame().await.unwrap();
-                        debug!("frame: {:?}", &frame);
+                        debug!("frame: {frame:?}");
                         assert_eq!(frame.to_rpcmesage().unwrap().param().unwrap().as_int(), 1);
                     }
                 }
