@@ -103,7 +103,7 @@ pub trait FrameReader {
     async fn receive_frame(&mut self) -> Result<RpcFrame, ReceiveFrameError> {
         match self.try_receive_frame().await {
             Ok(frame) => {
-               log!(target: "RpcMsg", Level::Debug, "R==> {} {}", format_peer_id(self.peer_id()), &frame);
+               log!(target: "RpcMsg", Level::Debug, "R==> {} {}", format_peer_id(self.peer_id()), frame);
                Ok(frame)
             }
             Err(err) => Err(err),
@@ -147,7 +147,7 @@ pub trait FrameWriter {
     }
     async fn send_frame_impl(&mut self, frame: RpcFrame) -> crate::Result<()>;
     async fn send_frame(&mut self, frame: RpcFrame) -> crate::Result<()> {
-        log!(target: "RpcMsg", Level::Debug, "S<== {} {}", format_peer_id(self.peer_id()), &frame.to_rpcmesage().map_or_else(|_| frame.to_string(), |rpc_msg| rpc_msg.to_string()));
+        log!(target: "RpcMsg", Level::Debug, "S<== {} {}", format_peer_id(self.peer_id()), frame.to_rpcmesage().map_or_else(|_| frame.to_string(), |rpc_msg| rpc_msg.to_string()));
         self.send_frame_impl(frame).await
     }
     async fn send_message(&mut self, msg: RpcMessage) -> crate::Result<()> {

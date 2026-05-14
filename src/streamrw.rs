@@ -208,7 +208,7 @@ mod test {
             RpcMessage::new_request("foo/bar", "baz2").with_param(&[0_u8; 128][..]),
         ] {
             let frame = msg.to_frame().unwrap();
-            debug!("frame: {}", &frame);
+            debug!("frame: {frame}");
 
             let buff = send_frame_to_vector(&frame).await;
             debug!("msg: {msg}");
