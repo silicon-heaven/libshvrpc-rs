@@ -60,6 +60,22 @@ pub struct ShvRI {
     signal_sep_ix: Option<usize>,
 }
 
+impl TryFrom<&RpcValue> for ShvRI {
+    type Error = String;
+
+    fn try_from(value: &RpcValue) -> Result<Self, Self::Error> {
+        ShvRI::try_from(String::try_from(value)?).map_err(ToOwned::to_owned)
+    }
+}
+
+impl TryFrom<RpcValue> for ShvRI {
+    type Error = String;
+
+    fn try_from(value: RpcValue) -> Result<Self, Self::Error> {
+        ShvRI::try_from(String::try_from(value)?).map_err(ToOwned::to_owned)
+    }
+}
+
 impl ShvRI {
     pub fn path(&self) -> &str {
         #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
