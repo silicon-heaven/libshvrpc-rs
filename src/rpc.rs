@@ -78,7 +78,7 @@ impl TryFrom<RpcValue> for ShvRI {
 
 impl ShvRI {
     pub fn path(&self) -> &str {
-        #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
+        #[expect(clippy::string_slice, reason = "We expect ASCII strings")]
         &self.ri[0..self.method_sep_ix]
     }
     pub fn method(&self) -> &str {
@@ -133,11 +133,11 @@ impl TryFrom<&str> for ShvRI {
 impl TryFrom<String> for ShvRI {
     type Error = &'static str;
     fn try_from(s: String) -> std::result::Result<Self, <Self as TryFrom<String>>::Error> {
-        #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
+        #[expect(clippy::string_slice, reason = "We expect ASCII strings")]
         let Some(method_sep_ix) = s[..].find(':') else {
-            return Err("Method separtor ':' is missing.");
+            return Err("Method separator ':' is missing.");
         };
-        #[expect(clippy::string_slice, reason = "VWe expect ASCII strings")]
+        #[expect(clippy::string_slice, reason = "We expect ASCII strings")]
         let signal_sep_ix = s[method_sep_ix + 1..]
             .find(':')
             .map(|ix| ix + method_sep_ix + 1);
