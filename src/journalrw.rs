@@ -16,8 +16,7 @@ const METH_GET: &str = "get";
 const SIG_CHNG: &str = "chng";
 
 fn parse_journal_entry_log2(line: &str) -> Result<JournalEntry, Box<dyn Error + Send + Sync>> {
-    let parts: Vec<&str> = line.split(JOURNAL_ENTRIES_SEPARATOR).collect();
-    let mut parts_iter = parts.iter().copied();
+    let mut parts_iter = line.split(JOURNAL_ENTRIES_SEPARATOR);
 
     let epoch_msec = shvproto::datetime::DateTime::from_iso_str(parts_iter
         .next()
