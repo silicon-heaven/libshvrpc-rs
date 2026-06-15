@@ -3,6 +3,7 @@ use shvproto::RpcValue;
 #[derive(Debug, Clone, PartialEq)]
 pub struct JournalEntry {
     pub epoch_msec: i64,
+    pub epoch_msec_orig: Option<i64>,
     pub path: String,
     pub signal: String,
     pub source: String,
