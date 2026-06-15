@@ -35,6 +35,9 @@ fn parse_journal_entry_log2(line: &str) -> Result<JournalEntry, Box<dyn Error + 
 
     Ok(JournalEntry {
         epoch_msec,
+        // Original timestamp is not saved in log2 files.
+        // The field is only used in getLog result.
+        epoch_msec_orig: None,
         path,
         signal: domain.unwrap_or(SIG_CHNG).into(),
         source: METH_GET.into(),
@@ -265,6 +268,9 @@ fn parse_journal_entry_log3(line: impl AsRef<str>) -> Result<JournalEntry, Box<d
 
     Ok(JournalEntry {
         epoch_msec,
+        // FIXME: A key in log3 entries for original timestamp should be defined.
+        // See https://silicon-heaven.github.io/shv-doc/rpcmethods/history.html
+        epoch_msec_orig: None,
         path,
         signal,
         source,
@@ -403,8 +409,17 @@ fn rpcvalue_to_journal_entry(entry: &RpcValue, paths_dict: &BTreeMap<i32, String
 
     let user_id = row.next().map_or_else(String::new, |rv| rv.as_str().into());
 
+    let timestamp_orig = row.next();
+    let epoch_msec_orig = match timestamp_orig {
+        Some(rv) if let shvproto::Value::DateTime(date_time) = rv.value => Some(date_time.epoch_msec()),
+        Some(rv) if rv.is_null() => None,
+        None => None,
+        Some(rv) => return make_err(&format!("Wrong `timestamp_orig` `{}` of journal entry", rv.to_cpon())),
+    };
+
     Ok(JournalEntry {
         epoch_msec: timestamp.epoch_msec(),
+        epoch_msec_orig,
         path,
         signal,
         source: METH_GET.into(),
@@ -447,6 +462,8 @@ pub(crate) fn journal_entry_to_rpclist(
         entry.signal.clone()
     };
 
+    let timestamp_orig = entry.epoch_msec_orig.map(shvproto::DateTime::from_epoch_msec);
+
     shvproto::make_list!(
         shvproto::DateTime::from_epoch_msec(entry.epoch_msec),
         path_value,
@@ -455,6 +472,7 @@ pub(crate) fn journal_entry_to_rpclist(
         domain,
         value_flags.bits(),
         entry.user_id.clone(),
+        timestamp_orig,
     )
 }
 
@@ -838,6 +856,7 @@ mod tests {
             let entries = [
                 JournalEntry {
                     epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec_orig: None,
                     path: "test/path".into(),
                     signal: SIG_CHNG.into(),
                     source: METH_GET.into(),
@@ -850,6 +869,7 @@ mod tests {
                 },
                 JournalEntry {
                     epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec_orig: None,
                     path: "test/path2".into(),
                     signal: SIG_CHNG.into(),
                     source: METH_GET.into(),
@@ -862,6 +882,7 @@ mod tests {
                 },
                 JournalEntry {
                     epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec_orig: None,
                     path: "".into(),
                     signal: "foo".into(),
                     source: METH_GET.into(), // log2 only supports "get" as a signal source
@@ -897,6 +918,7 @@ mod tests {
             let entries = [
                 JournalEntry {
                     epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec_orig: None,
                     path: "test/path".into(),
                     signal: SIG_CHNG.into(),
                     source: METH_GET.into(),
@@ -909,6 +931,7 @@ mod tests {
                 },
                 JournalEntry {
                     epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec_orig: None,
                     path: "test/path2".into(),
                     signal: SIG_CHNG.into(),
                     source: METH_GET.into(),
@@ -921,6 +944,7 @@ mod tests {
                 },
                 JournalEntry {
                     epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec_orig: None,
                     path: "".into(),
                     signal: "foo".into(),
                     source: "bar".into(),
@@ -982,6 +1006,7 @@ mod tests {
     ) -> JournalEntry {
         JournalEntry {
             epoch_msec,
+            epoch_msec_orig: None,
             path: path.to_string(),
             signal: signal.to_string(),
             source: "get".to_string(),
@@ -1043,6 +1068,7 @@ mod tests {
                 "2025-04-28T11:51:14.300Z\t\tsystem/status\t2u\t\tchng\t1\tuser").unwrap(),
                 JournalEntry {
                     epoch_msec: shvproto::DateTime::from_iso_str("2025-04-28T11:51:14.300Z").unwrap().epoch_msec(),
+                    epoch_msec_orig: None,
                     path: "system/status".into(),
                     signal: "chng".into(),
                     source: "get".into(),
@@ -1059,6 +1085,7 @@ mod tests {
                 "2025-04-28T11:51:14.300Z\t\tsystem/status\t2u").unwrap(),
                 JournalEntry {
                     epoch_msec: shvproto::DateTime::from_iso_str("2025-04-28T11:51:14.300Z").unwrap().epoch_msec(),
+                    epoch_msec_orig: None,
                     path: "system/status".into(),
                     signal: "chng".into(),
                     source: "get".into(),
