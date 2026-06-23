@@ -46,6 +46,7 @@ impl Glob {
         self.signal.as_ref().map(Pattern::as_str)
     }
 }
+
 impl TryFrom<&str> for Glob {
     type Error = String;
     fn try_from(s: &str) -> std::result::Result<Self, <Self as TryFrom<&str>>::Error> {
@@ -53,7 +54,9 @@ impl TryFrom<&str> for Glob {
         ri.to_glob()
     }
 }
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[serde(try_from = "String", into = "String")]
 pub struct ShvRI {
     ri: String,
     method_sep_ix: usize,
@@ -130,6 +133,13 @@ impl TryFrom<&str> for ShvRI {
         Self::try_from(ri)
     }
 }
+
+impl From<ShvRI> for String {
+    fn from(value: ShvRI) -> Self {
+        value.ri
+    }
+}
+
 impl TryFrom<String> for ShvRI {
     type Error = &'static str;
     fn try_from(s: String) -> std::result::Result<Self, <Self as TryFrom<String>>::Error> {
