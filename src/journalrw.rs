@@ -100,15 +100,15 @@ where
     pub async fn append(&mut self, entry: &JournalEntry) -> Result<(), std::io::Error> {
         let mut msec = entry.epoch_msec;
         if msec == 0 {
-            msec = shvproto::DateTime::now().epoch_msec();
+            msec = shvproto::DateTime::now().expect("Now must work").epoch_msec();
         }
         self.append_with_time(msec, msec, entry).await
     }
 
     pub async fn append_with_time(&mut self, msec: i64, orig_time: i64, entry: &JournalEntry) -> Result<(), std::io::Error> {
         let line = [
-            shvproto::DateTime::from_epoch_msec(msec).to_iso_string(),
-            if orig_time == msec { "".into() } else { shvproto::DateTime::from_epoch_msec(orig_time).to_iso_string() },
+            shvproto::DateTime::from_epoch_msec(msec).expect("Datetime overflow").to_iso_string(),
+            if orig_time == msec { "".into() } else { shvproto::DateTime::from_epoch_msec(orig_time).expect("Datetime overflow").to_iso_string() },
             entry.path.clone(),
             entry.value.to_cpon(),
             if entry.short_time >= 0 { entry.short_time.to_string() } else { "".into() },
@@ -723,7 +723,7 @@ impl TryFrom<shvproto::MetaMap> for Log2Header {
     type Error = String;
 
     fn try_from(meta: shvproto::MetaMap) -> Result<Self, Self::Error> {
-        let current_datetime = shvproto::DateTime::now();
+        let current_datetime = shvproto::DateTime::now().expect("Now must work");
         let record_count = match meta.get("recordCount").map(|v| &v.value) {
             Some(shvproto::Value::Int(record_count)) => *record_count,
             Some(v) => return Err(format!("Invalid `recordCount` type: {}", v.type_name())),
@@ -855,7 +855,7 @@ mod tests {
         ex.spawn(async move {
             let entries = [
                 JournalEntry {
-                    epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec: shvproto::DateTime::now().expect("Now must work").epoch_msec(),
                     epoch_msec_orig: None,
                     path: "test/path".into(),
                     signal: SIG_CHNG.into(),
@@ -868,7 +868,7 @@ mod tests {
                     provisional: false,
                 },
                 JournalEntry {
-                    epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec: shvproto::DateTime::now().expect("Now must work").epoch_msec(),
                     epoch_msec_orig: None,
                     path: "test/path2".into(),
                     signal: SIG_CHNG.into(),
@@ -881,7 +881,7 @@ mod tests {
                     provisional: true,
                 },
                 JournalEntry {
-                    epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec: shvproto::DateTime::now().expect("Now must work").epoch_msec(),
                     epoch_msec_orig: None,
                     path: "".into(),
                     signal: "foo".into(),
@@ -917,7 +917,7 @@ mod tests {
         ex.spawn(async move {
             let entries = [
                 JournalEntry {
-                    epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec: shvproto::DateTime::now().expect("Now must work").epoch_msec(),
                     epoch_msec_orig: None,
                     path: "test/path".into(),
                     signal: SIG_CHNG.into(),
@@ -930,7 +930,7 @@ mod tests {
                     provisional: false,
                 },
                 JournalEntry {
-                    epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec: shvproto::DateTime::now().expect("Now must work").epoch_msec(),
                     epoch_msec_orig: None,
                     path: "test/path2".into(),
                     signal: SIG_CHNG.into(),
@@ -943,7 +943,7 @@ mod tests {
                     provisional: true,
                 },
                 JournalEntry {
-                    epoch_msec: shvproto::DateTime::now().epoch_msec(),
+                    epoch_msec: shvproto::DateTime::now().expect("Now must work").epoch_msec(),
                     epoch_msec_orig: None,
                     path: "".into(),
                     signal: "foo".into(),
@@ -979,7 +979,7 @@ mod tests {
         let mut file = std::fs::File::open("tests/log2.cpon").unwrap();
         let mut reader = CponReader::new(&mut file);
         let reader = Log2Reader::new(reader.read().unwrap()).unwrap();
-        let epoch_ms_now = shvproto::DateTime::now().epoch_msec();
+        let epoch_ms_now = shvproto::DateTime::now().expect("Now must work").epoch_msec();
 
         let res = reader
             .map(|item|
@@ -1036,9 +1036,9 @@ mod tests {
                 record_count: entries.len() as _,
                 record_count_limit: RECORD_COUNT_LIMIT_DEFAULT,
                 record_count_limit_hit: false,
-                date_time: shvproto::DateTime::from_epoch_msec(1000),
-                since: shvproto::DateTime::from_epoch_msec(entries.first().unwrap().epoch_msec),
-                until: shvproto::DateTime::from_epoch_msec(entries.last().unwrap().epoch_msec),
+                date_time: shvproto::DateTime::from_epoch_msec(1000).expect("Datetime mustn't overflow"),
+                since: shvproto::DateTime::from_epoch_msec(entries.first().unwrap().epoch_msec).expect("Datetime mustn't overflow"),
+                until: shvproto::DateTime::from_epoch_msec(entries.last().unwrap().epoch_msec).expect("Datetime mustn't overflow"),
                 with_paths_dict: false,
                 with_snapshot: false,
                 paths_dict,

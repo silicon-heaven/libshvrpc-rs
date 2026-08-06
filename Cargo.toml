@@ -7,7 +7,7 @@ version = "19.1.0"
 edition = "2024"
 
 [dependencies]
-shvproto = "6.0"
+shvproto = "6.3.1"
 futures = "0.3.29"
 log = "0.4.21"
 sha1 = "0.11.0"
