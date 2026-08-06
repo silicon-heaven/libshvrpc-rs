@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use shvproto::RpcValue;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Glob {
     path: Pattern,
     path_star_prefix: Option<Pattern>,
