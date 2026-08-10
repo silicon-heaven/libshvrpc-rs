@@ -3,7 +3,7 @@ name = "shvrpc"
 description = "Rust implementation of the SHV-RPC protocol"
 license = "MIT"
 repository = "https://github.com/silicon-heaven/libshvrpc-rs"
-version = "19.1.0"
+version = "20.0.0"
 edition = "2024"
 
 [dependencies]
@@ -22,7 +22,7 @@ serde_yaml = "0.9.29"
 futures-time = "3.0.0"
 tungstenite = { version = "0.30.0", optional = true, default-features = false }
 anyhow = "1.0.98"
-socketcan = { version = "3.5.0", optional = true, default-features = false, features = ["dump"] }
+socketcan = { version = "4.0.0-pre.0", optional = true, default-features = false, features = ["dump"] }
 thiserror = { version = "2.0.16", optional = true }
 bitflags = "2.10.0"
 
@@ -31,6 +31,9 @@ env_logger = "0.11.5"
 macro_rules_attribute = "0.2.2"
 smol = "2"
 smol-macros = "0.1"
+
+[patch.crates-io]
+socketcan = { version = "4.0.0-pre.0", git = "https://github.com/socketcan-rs/socketcan-rs", rev = "97aa3271c9604b03de23313b1746baa225f0bcc4" }
 
 [features]
 default = []
