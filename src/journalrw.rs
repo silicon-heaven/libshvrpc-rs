@@ -72,14 +72,9 @@ where
     type Item = Result<JournalEntry, Box<dyn Error + Send + Sync>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let lines = Pin::new(&mut self.lines);
-
-        match lines.poll_next(cx) {
-            Poll::Ready(Some(Ok(line))) => Poll::Ready(Some(parse_journal_entry_log2(&line))),
-            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(Box::new(e)))),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
+        Pin::new(&mut self.lines)
+            .poll_next(cx)
+            .map(|opt| opt.map(|result| parse_journal_entry_log2(&result?)))
     }
 }
 
