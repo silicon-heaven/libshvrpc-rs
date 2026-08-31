@@ -3,11 +3,11 @@ name = "shvrpc"
 description = "Rust implementation of the SHV-RPC protocol"
 license = "MIT"
 repository = "https://github.com/silicon-heaven/libshvrpc-rs"
-version = "20.0.0"
+version = "21.0.0"
 edition = "2024"
 
 [dependencies]
-shvproto = "7.0.0"
+shvproto = "8.0.0"
 futures = "0.3.29"
 log = "0.4.21"
 sha1 = "0.11.0"
