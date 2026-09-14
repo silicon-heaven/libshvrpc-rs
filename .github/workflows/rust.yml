@@ -82,7 +82,7 @@ jobs:
           cargo install cargo-bump
           echo Bumping "${BASH_REMATCH[0]} -> $NEW_VERSION"
           if git show | grep cargo-shv-major; then
-            echo Detected shvproto/shvrpc major version update, bumping by major.
+            echo Detected breaking major version update, bumping by major.
             BUMP_TYPE='major'
           else
             BUMP_TYPE='patch'
