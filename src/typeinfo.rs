@@ -677,14 +677,13 @@ impl TryFrom<RpcValue> for MethodDescription {
         match value.value {
             shvproto::Value::Map(map) => {
                 Ok(Self {
-                    name: map.get(DirAttribute::Name.into()).map(|rv| rv.as_str().to_owned()).unwrap_or_default(),
-                    flags: map.get(DirAttribute::Flags.into()).map(shvproto::RpcValue::as_u32).unwrap_or_default(),
-                    param: map.get(DirAttribute::Param.into()).map(|rv| rv.as_str().to_owned()).unwrap_or_default(),
-                    result: map.get(DirAttribute::Result.into()).map(|rv| rv.as_str().to_owned()).unwrap_or_default(),
+                    name: map.get(DirAttribute::Name.into()).map_or_default(|rv| rv.as_str().to_owned()),
+                    flags: map.get(DirAttribute::Flags.into()).map_or_default(shvproto::RpcValue::as_u32),
+                    param: map.get(DirAttribute::Param.into()).map_or_default(|rv| rv.as_str().to_owned()),
+                    result: map.get(DirAttribute::Result.into()).map_or_default(|rv| rv.as_str().to_owned()),
                     access: AccessLevel::try_from(
                             map.get(DirAttribute::AccessLevel.into())
-                            .map(shvproto::RpcValue::as_i32)
-                            .unwrap_or_default()
+                            .map_or_default(shvproto::RpcValue::as_i32)
                         )
                         .unwrap_or(AccessLevel::Browse),
                     signals: {
@@ -696,8 +695,7 @@ impl TryFrom<RpcValue> for MethodDescription {
                             .collect()
                     },
                     description: map.get(KEY_DESCRIPTION)
-                        .map(|d| d.as_str().to_string())
-                        .unwrap_or_default(),
+                        .map_or_default(|d| d.as_str().to_string()),
                     extra: map.get(KEY_TAGS)
                         .map(RpcValue::as_map)
                         .cloned(),
@@ -706,14 +704,13 @@ impl TryFrom<RpcValue> for MethodDescription {
             shvproto::Value::IMap(imap) => {
                 let extra = imap.get(&IKEY_EXTRA);
                 Ok(Self {
-                    name: imap.get(&(DirAttribute::Name as _)).map(|rv| rv.as_str().to_string()).unwrap_or_default(),
-                    flags: imap.get(&(DirAttribute::Flags as _)).map(RpcValue::as_u32).unwrap_or_default(),
-                    param: imap.get(&(DirAttribute::Param as _)).map(|rv| rv.as_str().to_string()).unwrap_or_default(),
-                    result: imap.get(&(DirAttribute::Result as _)).map(|rv| rv.as_str().to_string()).unwrap_or_default(),
+                    name: imap.get(&(DirAttribute::Name as _)).map_or_default(|rv| rv.as_str().to_string()),
+                    flags: imap.get(&(DirAttribute::Flags as _)).map_or_default(RpcValue::as_u32),
+                    param: imap.get(&(DirAttribute::Param as _)).map_or_default(|rv| rv.as_str().to_string()),
+                    result: imap.get(&(DirAttribute::Result as _)).map_or_default(|rv| rv.as_str().to_string()),
                     access: AccessLevel::try_from(
                             imap.get(&(DirAttribute::AccessLevel as _))
-                            .map(RpcValue::as_i32)
-                            .unwrap_or_default()
+                            .map_or_default(RpcValue::as_i32)
                         )
                         .unwrap_or(AccessLevel::Browse),
                     signals: {
@@ -1084,7 +1081,7 @@ impl TryFrom<&RpcValue> for TypeInfo {
             for (path, val) in m {
                 let val_map: RpcMap = val.try_into().unwrap_or_default();
                 let (mut descr, _) = PropertyDescription::from_rpc_map(val_map.clone());
-                descr.set_type_name(val_map.get("type").map(RpcValue::as_str).unwrap_or_default());
+                descr.set_type_name(val_map.get("type").map_or_default(RpcValue::as_str));
                 descr.set_name(path);
                 dev_descr.properties.push(descr);
             }
