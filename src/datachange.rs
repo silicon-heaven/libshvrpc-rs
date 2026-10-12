@@ -69,7 +69,7 @@ impl From<RpcValue> for DataChange {
         let short_time = meta_value(&value, DataChangeMetaTag::ShortTime)
             .map(RpcValue::as_i32);
         let value_flags = meta_value(&value, DataChangeMetaTag::ValueFlags)
-            .map(|v| ValueFlags::from_bits_retain(v.as_u64())).unwrap_or_default();
+            .map_or_default(|v| ValueFlags::from_bits_retain(v.as_u64()));
 
         let unpacked_value = if let shvproto::Value::List(lst) = &value.value &&
             let [single_element] = lst.as_slice() &&

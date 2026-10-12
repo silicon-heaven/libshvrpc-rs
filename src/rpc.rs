@@ -47,10 +47,11 @@ impl Glob {
     }
 }
 
-impl TryFrom<&str> for Glob {
-    type Error = String;
-    fn try_from(s: &str) -> std::result::Result<Self, <Self as TryFrom<&str>>::Error> {
-        let ri = ShvRI::try_from(s)?;
+impl std::str::FromStr for Glob {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let ri = s.parse::<ShvRI>()?;
         ri.to_glob()
     }
 }
@@ -126,9 +127,10 @@ impl ShvRI {
         Ok(Self::try_from(ri)?)
     }
 }
-impl TryFrom<&str> for ShvRI {
-    type Error = &'static str;
-    fn try_from(s: &str) -> std::result::Result<Self, <Self as TryFrom<&str>>::Error> {
+impl std::str::FromStr for ShvRI {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let ri = s.to_owned();
         Self::try_from(ri)
     }
@@ -200,13 +202,13 @@ impl SubscriptionParam {
             }
         } else if value.is_list() {
             let lst = value.as_list();
-            let ri = lst.first().map(RpcValue::as_str).unwrap_or_default();
+            let ri = lst.first().map_or_default(RpcValue::as_str);
             if ri.is_empty() {
                 Err("Empty SHV RI".into())
             } else {
                 let ttl = lst.get(1).unwrap_or_default().clone();
                 Ok(SubscriptionParam {
-                    ri: ri.try_into()?,
+                    ri: ri.parse::<ShvRI>()?,
                     ttl: if ttl.is_null() { None } else { Some(ttl.as_u32()) },
                 })
             }
@@ -216,7 +218,7 @@ impl SubscriptionParam {
                 Err("Empty SHV RI".into())
             } else {
                 Ok(SubscriptionParam {
-                    ri: ri.try_into()?,
+                    ri: ri.parse::<ShvRI>()?,
                     ttl: None,
                 })
             }        } else {
@@ -249,7 +251,7 @@ mod tests {
             (":*", "", "*", None, ":*"),
             ("**:*:*", "**", "*", Some("*"), "**:*:*"),
         ] {
-            let ri = ShvRI::try_from(ri)?;
+            let ri = ri.parse::<ShvRI>()?;
             assert_eq!(
                 (ri.path(), ri.method(), ri.signal(), ri.to_glob()?.as_str()),
                 (path, method, signal, glob)
@@ -260,7 +262,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_invalid_shvri() {
-        ShvRI::try_from("::").unwrap();
+        "::".parse::<ShvRI>().unwrap();
     }
     #[test]
     fn test_glob() -> Result<(), String> {
@@ -309,8 +311,8 @@ mod tests {
             ("value:*:chng", "value:*:*", true),
         ] {
             // println!("{path} {ri}");
-            let glob = ShvRI::try_from(ri)?.to_glob()?;
-            let m = glob.match_shv_ri(&ShvRI::try_from(path)?);
+            let glob = ri.parse::<ShvRI>()?.to_glob()?;
+            let m = glob.match_shv_ri(&path.parse::<ShvRI>()?);
             assert_eq!(m, is_match, "glob: {}, ri: {path}, matches: {m}, expect: {is_match}", glob.as_str());
         }
         Ok(())
@@ -318,9 +320,9 @@ mod tests {
     #[test]
     fn test_subscription_param() -> Result<(), String> {
         for sp1 in [
-            SubscriptionParam { ri: ShvRI::try_from("*:*:*")?, ttl: None },
-            SubscriptionParam { ri: ShvRI::try_from("*:*:chng")?, ttl: Some(0) },
-            SubscriptionParam { ri: ShvRI::try_from("*:*:fchng")?, ttl: Some(123) },
+            SubscriptionParam { ri: "*:*:*".parse::<ShvRI>()?, ttl: None },
+            SubscriptionParam { ri: "*:*:chng".parse::<ShvRI>()?, ttl: Some(0) },
+            SubscriptionParam { ri: "*:*:fchng".parse::<ShvRI>()?, ttl: Some(123) },
         ] {
             let rv = sp1.to_rpcvalue();
             let sp2 = SubscriptionParam::from_rpcvalue(&rv)?;
